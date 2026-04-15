@@ -141,7 +141,8 @@ Phase 1 is divided into 3 parts. Each part is a self-contained, shippable unit.
 - [ ] Existing unverified user must verify email before invite is accepted
 - [ ] Member management page lists all members with correct roles
 - [ ] Org admin can change a member's role
-- [ ] Cannot demote the last remaining org_admin
+- [ ] Org admin can remove a member from the org (member retains platform account)
+- [ ] Cannot demote or remove the last remaining org_admin
 - [ ] App shell renders with sidebar, top bar, and user menu
 - [ ] Org switcher appears when user belongs to multiple orgs
 - [ ] Dashboard shows placeholder stat cards
