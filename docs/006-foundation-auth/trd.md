@@ -18,86 +18,148 @@
 
 ### 1.1 Project Initialization (P1.R1)
 
-**Command sequence:**
+**Already completed.** The project was scaffolded with:
 
-```bash
-npx create-next-app@latest hackforge --typescript --tailwind --eslint --app --src-dir --import-alias "@/*"
-```
+- **Next.js 16.2.3** with React 19, TypeScript, App Router, `src/` directory, `@/*` import alias
+- **Tailwind CSS v4** — CSS-based configuration (no `tailwind.config.ts`), uses `@import "tailwindcss"` and `@theme inline` in `globals.css`
+- **ESLint 9** with flat config (`eslint.config.mjs`)
 
 **Post-init configuration:**
 
-- Enable TypeScript strict mode in `tsconfig.json` (`"strict": true`)
-- Configure path aliases: `@/*` maps to `src/*`
+- Verify TypeScript strict mode is enabled in `tsconfig.json` (`"strict": true`)
 - Set Node engine in `package.json`: `"engines": { "node": ">=18.17.0" }`
 
-**Resulting key files:**
+**Existing key files:**
 
 | File | Purpose |
 |------|---------|
 | `src/app/layout.tsx` | Root layout (html, body, global providers) |
 | `src/app/page.tsx` | Landing page (temporary — will be replaced) |
-| `next.config.js` | Next.js configuration |
+| `next.config.ts` | Next.js configuration (TypeScript) |
 | `tsconfig.json` | TypeScript config with strict mode |
-| `tailwind.config.ts` | Tailwind configuration |
-| `postcss.config.js` | PostCSS config for Tailwind |
+| `postcss.config.mjs` | PostCSS config for Tailwind v4 (`@tailwindcss/postcss`) |
+| `eslint.config.mjs` | ESLint 9 flat config |
+| `components.json` | shadcn configuration |
+
+**Note:** Tailwind v4 does NOT use a `tailwind.config.ts` file. All theme customization is done via CSS using `@theme inline` in `src/app/globals.css`.
 
 ---
 
-### 1.2 Tailwind CSS + shadcn/ui + Dual-Tone Design System (P1.R2)
+### 1.2 Tailwind CSS + shadcn + Dual-Tone Design System (P1.R2)
 
-**shadcn/ui initialization:**
+**shadcn initialization (already completed):**
 
 ```bash
-npx shadcn-ui@latest init
+npx shadcn@latest init
 ```
 
-Configuration choices:
-- Style: Default
-- Base color: Slate
+Configuration (from `components.json`):
+- Style: `radix-nova`
+- Base color: `neutral`
 - CSS variables: Yes
-- Tailwind config: `tailwind.config.ts`
-- Components directory: `src/components/ui`
-- Utils directory: `src/lib/utils.ts`
+- Icon library: `lucide`
+- Component library: Radix
+- Components directory: `@/components/ui`
+- Utils directory: `@/lib/utils`
 
-**Initial shadcn/ui components to install** (needed by Part 1 and forward-compatible with Parts 2–3):
+**Additional shadcn components to install** (forward-compatible with Parts 2–3):
 
 ```bash
-npx shadcn-ui@latest add button card input label form toast sonner
+npx shadcn@latest add card input label form toast sonner
 ```
+
+Note: `button` and `utils` were already created during init.
 
 **Dual-tone design tokens in `src/app/globals.css`:**
 
-The design system defines two visual modes via CSS custom properties under `:root` and a `.theme-competitive` class:
+The existing `globals.css` already defines `:root` (light/admin mode) and `.dark` (dark mode) using oklch color space. The competitive theme builds on the `.dark` base but overrides accent colors with vibrant, high-energy values.
+
+The design system uses three visual modes via CSS custom properties:
 
 **Admin mode (`:root` — default):**
-- Light background (`--background: 0 0% 100%`) with neutral greys
-- Professional, clean, high-contrast palette
-- Readable typography, functional spacing
-- Accent color for CTAs and interactive elements (e.g., indigo/blue family)
+- Already defined by shadcn Nova preset
+- Light background, neutral greys, professional palette
+- Used for all admin/organizer-facing pages (dashboard, member management, hackathon setup)
 
-**Competitive mode (`.theme-competitive`):**
-- Dark background (`--background: 222 47% 6%`) 
-- Neon/vibrant accent colors (e.g., electric green `--accent: 142 71% 45%`, cyan, magenta)
-- Bold, high-energy feel — strong contrast between background and foreground
-- Larger, bolder heading typography
+**Dark mode (`.dark` — shadcn default):**
+- Already defined by shadcn Nova preset
+- Standard dark mode with neutral tones
 
-**Token categories defined:**
+**Competitive mode (`.theme-competitive` — custom addition):**
+- Extends `.dark` as base (dark backgrounds)
+- Overrides key tokens with vibrant, neon accent colors using oklch:
+  - `--primary`: electric green/cyan for CTAs and highlights (e.g., `oklch(0.75 0.2 160)`)
+  - `--accent`: vibrant secondary accent (e.g., `oklch(0.7 0.25 290)` — magenta/purple)
+  - `--ring`: bright glow effect for focus states
+  - `--chart-*`: vibrant data visualization colors
+- Bold, high-energy feel — strong contrast between background and neon foreground elements
+- Used for participant-facing pages (hackathon landing page, registration, leaderboard, results)
+
+**Token categories (already defined by shadcn, extended for competitive):**
 
 | Category | Custom Properties |
 |----------|-----------------|
-| Colors | `--background`, `--foreground`, `--card`, `--card-foreground`, `--primary`, `--primary-foreground`, `--secondary`, `--secondary-foreground`, `--muted`, `--muted-foreground`, `--accent`, `--accent-foreground`, `--destructive`, `--destructive-foreground`, `--border`, `--input`, `--ring` |
-| Radius | `--radius` (admin: `0.5rem`, competitive: `0.75rem`) |
+| Colors | `--background`, `--foreground`, `--card`, `--card-foreground`, `--primary`, `--primary-foreground`, `--secondary`, `--secondary-foreground`, `--muted`, `--muted-foreground`, `--accent`, `--accent-foreground`, `--destructive`, `--border`, `--input`, `--ring`, `--chart-1` through `--chart-5` |
+| Sidebar | `--sidebar`, `--sidebar-foreground`, `--sidebar-primary`, `--sidebar-primary-foreground`, `--sidebar-accent`, `--sidebar-accent-foreground`, `--sidebar-border`, `--sidebar-ring` |
+| Radius | `--radius` (default: `0.625rem`) |
 
 **How modes are applied:**
 - Admin pages use the default `:root` tokens (no class needed)
 - Participant-facing layouts (Phase 2+) wrap content in a `<div className="theme-competitive">` to switch tokens
-- All shadcn/ui components automatically pick up the correct tokens since they use CSS variables
+- All shadcn components automatically pick up the correct tokens since they reference CSS variables
+- The `@custom-variant dark (&:is(.dark *))` directive (already in globals.css) enables Tailwind's `dark:` variant
 
-**Tailwind config extensions (`tailwind.config.ts`):**
+**Typography system:**
 
-- Extend `fontFamily` with a system font stack plus a bold display font for competitive headings
-- Map CSS custom properties to Tailwind color utilities (shadcn/ui does this by default)
-- No arbitrary pixel values — all spacing uses Tailwind's scale
+Two font families, loaded via `next/font` in the root layout:
+
+| Font | Usage | Loaded Via |
+|------|-------|-----------|
+| **Geist Sans** (or Inter) | Admin body text, UI labels, form inputs, dashboard content. Clean, highly readable at small sizes. Used across all admin/organizer-facing pages. | `next/font/google` or `next/font/local` (already set up by Next.js init as `--font-sans`) |
+| **Space Grotesk** | Competitive headings, hero titles, leaderboard ranks, hackathon names on landing pages. Geometric, bold, technical feel — conveys competition and precision. | `next/font/google`, assigned to `--font-heading-competitive` |
+
+**How typography is applied:**
+
+- `--font-sans` (Geist/Inter) is the global default for all text. Already mapped in `@theme inline` as `--font-sans`.
+- `--font-heading` defaults to `--font-sans` in admin mode (clean, professional headings).
+- In `.theme-competitive`, `--font-heading` is overridden to use Space Grotesk, so any element using `font-heading` automatically switches to the display font.
+- Tailwind utility classes: `font-sans` for body text, `font-heading` for headings. Components use `font-heading` on h1–h3 elements, and the competitive theme swaps the underlying font without changing any component code.
+
+**Typography scale (consistent across both modes):**
+
+| Element | Tailwind Class | Admin | Competitive |
+|---------|---------------|-------|-------------|
+| H1 (page titles) | `text-3xl font-heading font-bold` | Geist Sans, bold | Space Grotesk, bold |
+| H2 (section headers) | `text-2xl font-heading font-semibold` | Geist Sans, semibold | Space Grotesk, semibold |
+| H3 (card titles) | `text-xl font-heading font-semibold` | Geist Sans, semibold | Space Grotesk, semibold |
+| Body | `text-base font-sans` | Geist Sans, regular | Geist Sans, regular |
+| Small/caption | `text-sm text-muted-foreground` | Geist Sans, regular | Geist Sans, regular |
+
+**Implementation in `src/app/layout.tsx`:**
+
+```typescript
+import { Geist, Space_Grotesk } from 'next/font/google';
+
+const geist = Geist({ subsets: ['latin'], variable: '--font-sans' });
+const spaceGrotesk = Space_Grotesk({ subsets: ['latin'], variable: '--font-heading-competitive' });
+```
+
+Both font variables are applied to the `<body>` tag. The `@theme inline` block maps them, and `.theme-competitive` swaps `--font-heading` to `var(--font-heading-competitive)`.
+
+**Implementation in `src/app/globals.css`:**
+
+```css
+@theme inline {
+  --font-sans: var(--font-sans);
+  --font-heading: var(--font-sans); /* admin: same as body */
+  --font-heading-competitive: var(--font-heading-competitive);
+  /* ...existing tokens... */
+}
+
+.theme-competitive {
+  --font-heading: var(--font-heading-competitive); /* swap to Space Grotesk */
+}
+```
 
 ---
 
@@ -309,16 +371,17 @@ export * from './verification-tokens';
 
 ### 1.6 Folder Structure (P1.R10)
 
-The following directories and files are created in Part 1. Only what's built in this part is listed — no placeholders for future phases.
+The following reflects what exists after Part 1 completion. Files marked with `[existing]` were created during project init/shadcn setup. Files marked with `[new]` are created in Part 1.
 
 ```
 hackforge/
-├── .env.example                          # Environment variable template
-├── .env.local                            # Local env (gitignored)
-├── .gitignore
-├── CLAUDE.md
-├── CHANGELOG.md
-├── docs/                                 # Existing documentation
+├── .env.example                          # [new] Environment variable template
+├── .env.local                            # [new] Local env (gitignored)
+├── .gitignore                            # [existing]
+├── CLAUDE.md                             # [existing]
+├── CHANGELOG.md                          # [existing]
+├── components.json                       # [existing] shadcn configuration
+├── docs/                                 # [existing] Project documentation
 │   ├── 000-project-context.md
 │   ├── 001-technical-decisions.md
 │   ├── 002-v1-development-phases.md
@@ -328,37 +391,38 @@ hackforge/
 │   └── 006-foundation-auth/
 │       ├── prd.md
 │       └── trd.md
-├── drizzle.config.ts                     # Drizzle Kit configuration
-├── next.config.js                        # Next.js configuration
-├── package.json
-├── postcss.config.js
-├── tailwind.config.ts
-├── tsconfig.json
+├── drizzle.config.ts                     # [new] Drizzle Kit configuration
+├── eslint.config.mjs                     # [existing] ESLint 9 flat config
+├── next.config.ts                        # [existing] Next.js configuration (TypeScript)
+├── next-env.d.ts                         # [existing] Next.js type declarations
+├── package.json                          # [existing, modified] Added Drizzle deps + scripts
+├── postcss.config.mjs                    # [existing] PostCSS config (@tailwindcss/postcss)
+├── tsconfig.json                         # [existing]
 └── src/
     ├── app/
-    │   ├── globals.css                   # Dual-tone design tokens + Tailwind base
-    │   ├── layout.tsx                    # Root layout (fonts, metadata, Toaster)
-    │   └── page.tsx                      # Temporary landing page
+    │   ├── globals.css                   # [existing, modified] Add .theme-competitive tokens
+    │   ├── layout.tsx                    # [existing, modified] Root layout (fonts, metadata, Toaster)
+    │   └── page.tsx                      # [existing] Temporary landing page
     ├── components/
-    │   └── ui/                           # shadcn/ui primitives (button, card, input, label, form, toast)
+    │   └── ui/                           # [existing + new] shadcn components (button + card, input, label, form, toast, sonner)
     ├── db/
-    │   ├── index.ts                      # Drizzle client instance
+    │   ├── index.ts                      # [new] Drizzle client instance
     │   ├── schema/
-    │   │   ├── index.ts                  # Barrel export
-    │   │   ├── enums.ts                  # platform_role, org_role
-    │   │   ├── users.ts                  # users table
-    │   │   ├── organizations.ts          # organizations table
-    │   │   ├── org-memberships.ts        # org_memberships table
-    │   │   ├── org-invites.ts            # org_invites table
-    │   │   └── verification-tokens.ts    # verification_tokens table (for Part 2)
-    │   └── migrations/                   # Generated by drizzle-kit
+    │   │   ├── index.ts                  # [new] Barrel export
+    │   │   ├── enums.ts                  # [new] platform_role, org_role
+    │   │   ├── users.ts                  # [new] users table
+    │   │   ├── organizations.ts          # [new] organizations table
+    │   │   ├── org-memberships.ts        # [new] org_memberships table
+    │   │   ├── org-invites.ts            # [new] org_invites table
+    │   │   └── verification-tokens.ts    # [new] verification_tokens table (for Part 2)
+    │   └── migrations/                   # [new] Generated by drizzle-kit
     ├── lib/
-    │   ├── utils.ts                      # cn() helper (installed by shadcn/ui)
-    │   └── validations/                  # Directory created; schemas added in Part 2+
-    └── types/                            # Directory created; types added in Part 2+
+    │   ├── utils.ts                      # [existing] cn() helper (installed by shadcn)
+    │   └── validations/                  # [new] Directory created; schemas added in Part 2+
+    └── types/                            # [new] Directory created; types added in Part 2+
 ```
 
-**Directories created but empty** (ready for future parts): `src/lib/auth/`, `src/lib/email/`, `src/lib/hooks/`, `src/lib/services/`, `src/lib/storage/`, `src/app/(auth)/`, `src/app/(dashboard)/`, `src/app/api/`.
+**Directories created but empty** (ready for future parts): `src/lib/auth/`, `src/lib/email/`, `src/lib/hooks/`, `src/lib/services/`, `src/lib/storage/`, `src/app/(auth)/`, `src/app/(dashboard)/`, `src/app/api/`, `src/app/(public)/`.
 
 ---
 
@@ -427,25 +491,22 @@ These instructions are for the developer (Burhanuddin) to follow manually. They 
 
 ### 1.9 Implementation Increments
 
-Part 1 is implemented in 3 increments. Each increment is a self-contained, pushable commit.
+Part 1 is implemented in 3 increments. Each increment is a self-contained, pushable commit. Note: project init and shadcn init are already complete — Increment 1 builds on the existing state.
 
-#### Increment 1: Project Init + Tailwind + shadcn/ui
+#### Increment 1: Design System + Typography + Additional shadcn Components
 
-**What:** Scaffold the Next.js project, configure Tailwind, install shadcn/ui, define the dual-tone design tokens in `globals.css`.
+**What:** Install remaining shadcn components, load Space Grotesk font, add the `.theme-competitive` CSS custom properties (colors + typography overrides) to `globals.css`, update root layout with font variables and Toaster provider.
 
 **Files created/modified:**
-- All root config files (`next.config.js`, `tsconfig.json`, `tailwind.config.ts`, `postcss.config.js`, `package.json`)
-- `src/app/globals.css` — dual-tone design tokens
-- `src/app/layout.tsx` — root layout with fonts and metadata
-- `src/app/page.tsx` — temporary landing page
-- `src/components/ui/*` — shadcn/ui components
-- `src/lib/utils.ts` — `cn()` helper
+- `src/components/ui/*` — new shadcn components (card, input, label, form, toast, sonner)
+- `src/app/globals.css` — add `.theme-competitive` color + typography token overrides after `.dark` block; update `@theme inline` with `--font-heading` and `--font-heading-competitive`
+- `src/app/layout.tsx` — import Space Grotesk via `next/font/google`, add both font CSS variables to `<body>`, add Toaster provider from sonner
 
-**Verify:** `npm run dev` starts successfully, temporary page renders with correct styling.
+**Verify:** `npm run dev` starts successfully. Admin mode renders with Geist Sans headings. A test div with `className="theme-competitive"` renders headings in Space Grotesk. Both color palettes display correctly.
 
 #### Increment 2: Database Schema + Migration
 
-**What:** Install Drizzle, create all schema files, generate and apply the initial migration.
+**What:** Install Drizzle ORM + postgres driver, create all schema files, configure Drizzle Kit, generate and apply the initial migration.
 
 **Files created/modified:**
 - `drizzle.config.ts`
@@ -458,18 +519,20 @@ Part 1 is implemented in 3 increments. Each increment is a self-contained, pusha
 - `src/db/schema/verification-tokens.ts`
 - `src/db/schema/index.ts`
 - `src/db/migrations/*` (generated)
-- `package.json` (new dependencies + scripts)
+- `package.json` (new dependencies: `drizzle-orm`, `postgres`; new devDependencies: `drizzle-kit`; new scripts: `db:generate`, `db:migrate`, `db:studio`)
 
-**Verify:** `npm run db:migrate` applies cleanly. `npm run db:studio` shows all 5 tables and 2 enums.
+**Prerequisite:** `.env.local` must have `DATABASE_URL` and `DIRECT_URL` set (see section 1.8).
+
+**Verify:** `npm run db:generate` creates migration files. `npm run db:migrate` applies cleanly. `npm run db:studio` shows all 5 tables and 2 enums.
 
 #### Increment 3: Folder Structure + Environment Config
 
-**What:** Create remaining directory structure, `.env.example`, `.gitignore` updates, and empty placeholder directories for future parts.
+**What:** Create remaining directory structure, `.env.example`, verify `.gitignore`, and create empty placeholder directories for future parts.
 
 **Files created/modified:**
 - `.env.example`
-- `.gitignore` (ensure `.env.local` is ignored)
-- Empty directories: `src/lib/auth/`, `src/lib/email/`, `src/lib/hooks/`, `src/lib/services/`, `src/lib/storage/`, `src/lib/validations/`, `src/types/`, `src/app/(auth)/`, `src/app/(dashboard)/`, `src/app/api/`, `src/app/(public)/`
+- `.gitignore` (verify `.env.local` and `.env` are ignored)
+- Empty directories with `.gitkeep`: `src/lib/auth/`, `src/lib/email/`, `src/lib/hooks/`, `src/lib/services/`, `src/lib/storage/`, `src/lib/validations/`, `src/types/`, `src/app/(auth)/`, `src/app/(dashboard)/`, `src/app/api/`, `src/app/(public)/`
 
 **Verify:** Folder structure matches section 1.6 above. `.env.example` contains all variables from section 1.7. `npx tsc --noEmit` passes with no errors.
 
@@ -479,17 +542,17 @@ Part 1 is implemented in 3 increments. Each increment is a self-contained, pusha
 
 | File | Action | Requirement |
 |------|--------|-------------|
-| `next.config.js` | Created | P1.R1 |
-| `tsconfig.json` | Created/Modified | P1.R1 |
-| `tailwind.config.ts` | Created/Modified | P1.R2 |
-| `postcss.config.js` | Created | P1.R2 |
-| `package.json` | Modified | P1.R1, P1.R3 |
+| `next.config.ts` | Existing | P1.R1 |
+| `tsconfig.json` | Existing | P1.R1 |
+| `postcss.config.mjs` | Existing | P1.R2 |
+| `eslint.config.mjs` | Existing | P1.R1 |
+| `components.json` | Existing | P1.R2 |
+| `package.json` | Modified | P1.R3 (Drizzle deps + scripts) |
 | `drizzle.config.ts` | Created | P1.R3 |
-| `src/app/globals.css` | Modified | P1.R2 |
-| `src/app/layout.tsx` | Modified | P1.R1, P1.R2 |
-| `src/app/page.tsx` | Modified | P1.R1 |
-| `src/components/ui/*` | Created | P1.R2 |
-| `src/lib/utils.ts` | Created | P1.R2 |
+| `src/app/globals.css` | Modified | P1.R2 (add `.theme-competitive` tokens) |
+| `src/app/layout.tsx` | Modified | P1.R2 (add Toaster provider) |
+| `src/components/ui/*` | Created (additional) | P1.R2 (card, input, label, form, toast, sonner) |
+| `src/lib/utils.ts` | Existing | P1.R2 |
 | `src/db/index.ts` | Created | P1.R3 |
 | `src/db/schema/enums.ts` | Created | P1.R8 |
 | `src/db/schema/users.ts` | Created | P1.R4 |

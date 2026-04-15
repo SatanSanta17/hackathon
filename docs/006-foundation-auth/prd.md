@@ -44,8 +44,8 @@ Phase 1 is divided into 3 parts. Each part is a self-contained, shippable unit.
 
 | ID | Requirement |
 |----|-------------|
-| P1.R1 | Initialize a Next.js 14+ project with TypeScript and App Router |
-| P1.R2 | Install and configure Tailwind CSS and shadcn/ui with a **dual-tone design system**: (a) **Admin/organizer-facing pages** (dashboard, member management, hackathon setup, judging) — professional, clean, light background, high contrast, functional. These are work tools and should feel efficient and readable. (b) **Participant-facing pages** (hackathon landing page, registration, leaderboard, results) — competitive gaming aesthetic: dark backgrounds, bold/neon accent colors, strong typography, dynamic visual energy. These pages should make people excited to compete. Define shared design tokens (colors, typography, spacing) in `globals.css` to support both modes. |
+| P1.R1 | Initialize a Next.js 16+ project with TypeScript, App Router, and Tailwind CSS v4 |
+| P1.R2 | Install and configure Tailwind CSS v4 and shadcn (Radix, Nova preset) with a **dual-tone design system**: (a) **Admin/organizer-facing pages** (dashboard, member management, hackathon setup, judging) — professional, clean, light background, high contrast, functional. These are work tools and should feel efficient and readable. (b) **Participant-facing pages** (hackathon landing page, registration, leaderboard, results) — competitive gaming aesthetic: dark backgrounds, bold/neon accent colors, dynamic visual energy. These pages should make people excited to compete. **Typography:** Admin pages use a clean sans-serif font (Geist Sans) for all text. Participant-facing pages use a bold, geometric display font (Space Grotesk) for headings to convey competition and energy, while body text remains in the standard sans-serif for readability. The font swap is driven by CSS variables so components don't need mode-specific code. Define shared design tokens (colors, typography, spacing) in `globals.css` to support both modes. |
 | P1.R3 | Set up Drizzle ORM with PostgreSQL connection (Supabase-hosted) |
 | P1.R4 | Define the `users` table: id (uuid), email (unique), name, password_hash, avatar_url (nullable), email_verified (default false), platform_role (enum: `user`, `super_admin`, default `user`), created_at, updated_at, deleted_at (nullable) |
 | P1.R5 | Define the `organizations` table: id (uuid), name, slug (unique), logo_url (nullable), created_at, updated_at, deleted_at (nullable) |
@@ -60,9 +60,10 @@ Phase 1 is divided into 3 parts. Each part is a self-contained, shippable unit.
 **Acceptance Criteria:**
 
 - [ ] Next.js project runs locally with `npm run dev`
-- [ ] Tailwind CSS and shadcn/ui are functional (a test component renders correctly)
+- [ ] Tailwind CSS v4 and shadcn are functional (a test component renders correctly)
+- [ ] Both design modes work: admin (light, Geist Sans headings) and competitive (dark, neon accents, Space Grotesk headings)
 - [ ] Drizzle connects to Supabase Postgres successfully
-- [ ] All 4 tables and 2 enums exist in the database after migration
+- [ ] All 5 tables (`users`, `organizations`, `org_memberships`, `org_invites`, `verification_tokens`) and 2 enums exist in the database after migration
 - [ ] Folder structure matches the architecture doc
 - [ ] `.env.example` exists with all required variables documented
 
