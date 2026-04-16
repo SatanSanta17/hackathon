@@ -1,8 +1,8 @@
 # HackForge — Architecture
 
 **Document ID:** ARCH-004  
-**Date:** April 15, 2026  
-**Status:** Pre-Build (will be updated every phase)  
+**Date:** April 16, 2026  
+**Status:** Phase 1 Complete (Foundation + Auth + Org Management + Admin)  
 **Update Frequency:** Every development phase
 
 ---
@@ -92,16 +92,133 @@ hackforge/                              # PROJECT ROOT
 ├── postcss.config.mjs                  # PostCSS config (@tailwindcss/postcss)
 ├── tsconfig.json                       # TypeScript strict mode config
 └── src/
+    ├── middleware.ts                    # NextAuth route protection (/dashboard/*)
+    ├── hooks/
+    │   └── use-mobile.ts               # Mobile breakpoint detection hook
     ├── app/
-    │   ├── (auth)/                     # Auth pages (Part 2 — empty)
-    │   ├── (dashboard)/                # Protected app routes (Part 3 — empty)
-    │   ├── (public)/                   # Public pages (Phase 2+ — empty)
-    │   ├── api/                        # API route handlers (Part 2+ — empty)
     │   ├── globals.css                 # Dual-tone design tokens (admin + competitive)
     │   ├── layout.tsx                  # Root layout (Geist + Space Grotesk fonts, Toaster)
-    │   └── page.tsx                    # Temporary landing page
+    │   ├── page.tsx                    # Temporary landing page
+    │   │
+    │   ├── (auth)/                     # Auth route group (unauthenticated)
+    │   │   ├── layout.tsx              # Centered card layout
+    │   │   ├── login/
+    │   │   │   ├── page.tsx
+    │   │   │   └── _components/
+    │   │   │       └── login-form.tsx
+    │   │   ├── signup/
+    │   │   │   ├── page.tsx
+    │   │   │   └── _components/
+    │   │   │       └── signup-form.tsx
+    │   │   ├── check-email/
+    │   │   │   └── page.tsx            # Post-signup confirmation
+    │   │   ├── verify-email/
+    │   │   │   └── page.tsx            # Token verification handler
+    │   │   ├── forgot-password/
+    │   │   │   ├── page.tsx
+    │   │   │   └── _components/
+    │   │   │       └── forgot-password-form.tsx
+    │   │   ├── reset-password/
+    │   │   │   ├── page.tsx
+    │   │   │   └── _components/
+    │   │   │       └── reset-password-form.tsx
+    │   │   └── invite/
+    │   │       └── accept/
+    │   │           └── page.tsx        # Org invite acceptance handler
+    │   │
+    │   ├── (dashboard)/                # Protected route group (authenticated)
+    │   │   ├── layout.tsx              # SessionProvider + SidebarProvider + VerificationBanner
+    │   │   ├── _components/
+    │   │   │   ├── app-sidebar.tsx      # Navigation sidebar (org-scoped)
+    │   │   │   └── top-bar.tsx          # Org switcher + user menu + mobile trigger
+    │   │   ├── dashboard/
+    │   │   │   ├── page.tsx             # Org picker / redirect / welcome
+    │   │   │   ├── loading.tsx          # Skeleton for org picker
+    │   │   │   ├── create-org/
+    │   │   │   │   ├── page.tsx
+    │   │   │   │   └── _components/
+    │   │   │   │       └── create-org-form.tsx
+    │   │   │   └── [orgSlug]/
+    │   │   │       ├── layout.tsx       # Org validation + sidebar + top bar
+    │   │   │       ├── loading.tsx      # Dashboard skeleton
+    │   │   │       ├── page.tsx         # Org dashboard (stat cards)
+    │   │   │       ├── _components/
+    │   │   │       │   └── stat-card.tsx
+    │   │   │       ├── members/
+    │   │   │       │   ├── page.tsx
+    │   │   │       │   ├── loading.tsx  # Members table skeleton
+    │   │   │       │   └── _components/
+    │   │   │       │       ├── member-table.tsx
+    │   │   │       │       ├── invite-dialog.tsx
+    │   │   │       │       └── role-select.tsx
+    │   │   │       ├── hackathons/
+    │   │   │       │   └── page.tsx     # Placeholder (Phase 2)
+    │   │   │       └── settings/
+    │   │   │           └── page.tsx     # Placeholder (future phase)
+    │   │   └── admin/
+    │   │       ├── layout.tsx           # Super-admin gate
+    │   │       ├── loading.tsx          # Admin skeleton
+    │   │       ├── page.tsx             # Tabs: Organizations + Users
+    │   │       └── _components/
+    │   │           ├── orgs-table.tsx
+    │   │           └── users-table.tsx
+    │   │
+    │   ├── (public)/                   # Public pages (Phase 2+ — empty)
+    │   │
+    │   └── api/
+    │       ├── auth/
+    │       │   ├── [...nextauth]/route.ts   # NextAuth catch-all handler
+    │       │   ├── signup/route.ts
+    │       │   ├── verify-email/route.ts
+    │       │   ├── resend-verification/route.ts
+    │       │   ├── forgot-password/route.ts
+    │       │   └── reset-password/route.ts
+    │       ├── orgs/
+    │       │   ├── route.ts                 # POST create / GET list user orgs
+    │       │   └── [orgId]/
+    │       │       └── members/
+    │       │           ├── route.ts          # GET list members
+    │       │           ├── invite/
+    │       │           │   └── route.ts      # POST invite member
+    │       │           └── [membershipId]/
+    │       │               ├── route.ts      # DELETE remove member
+    │       │               └── role/
+    │       │                   └── route.ts  # PATCH change role
+    │       ├── invite/
+    │       │   └── accept/
+    │       │       └── route.ts             # POST accept org invite
+    │       └── admin/
+    │           ├── orgs/route.ts            # GET list all orgs (super_admin)
+    │           └── users/route.ts           # GET list all users (super_admin)
+    │
     ├── components/
-    │   └── ui/                         # shadcn components (button, card, input, label, sonner)
+    │   ├── providers/
+    │   │   └── session-provider.tsx     # NextAuth SessionProvider wrapper
+    │   ├── verification-banner.tsx      # Email verification reminder banner
+    │   └── ui/                         # shadcn/ui components (radix-nova)
+    │       ├── avatar.tsx
+    │       ├── badge.tsx
+    │       ├── button.tsx
+    │       ├── card.tsx
+    │       ├── dialog.tsx
+    │       ├── dropdown-menu.tsx
+    │       ├── form/                   # Custom form primitives
+    │       │   ├── index.ts            # Barrel export
+    │       │   ├── form-field.tsx      # Generic FormField<T> wrapper
+    │       │   ├── form-message.tsx    # Error message display
+    │       │   └── form-password-field.tsx  # Password with toggle
+    │       ├── input.tsx
+    │       ├── label.tsx
+    │       ├── select.tsx
+    │       ├── separator.tsx
+    │       ├── sheet.tsx
+    │       ├── sidebar.tsx
+    │       ├── skeleton.tsx
+    │       ├── sonner.tsx
+    │       ├── table.tsx
+    │       ├── tabs.tsx
+    │       └── tooltip.tsx
+    │
     ├── db/
     │   ├── index.ts                    # Drizzle client instance (postgres.js driver)
     │   ├── schema/
@@ -112,25 +229,41 @@ hackforge/                              # PROJECT ROOT
     │   │   ├── org-memberships.ts      # org_memberships table + types
     │   │   ├── org-invites.ts          # org_invites table + types
     │   │   └── verification-tokens.ts  # verification_tokens table + types
-    │   └── migrations/                 # Drizzle-kit generated migrations
-    ├── lib/
-    │   ├── auth/                       # NextAuth config + helpers (Part 2 — empty)
-    │   ├── email/                      # Resend client + templates (Part 2 — empty)
-    │   ├── hooks/                      # Custom React hooks (Part 3 — empty)
-    │   ├── services/                   # Business logic (Part 2+ — empty)
-    │   ├── storage/                    # StorageProvider interface (Phase 4 — empty)
-    │   ├── utils.ts                    # cn() helper (shadcn)
-    │   └── validations/                # Shared Zod schemas (Part 2 — empty)
-    └── types/                          # Global TypeScript types (Part 2 — empty)
+    │   └── migrations/                 # Drizzle-kit generated SQL migrations
+    │
+    └── lib/
+        ├── utils.ts                    # cn() + slugify() helpers
+        ├── auth/
+        │   ├── auth.ts                 # NextAuth v5 config (Credentials, JWT, callbacks)
+        │   ├── constants.ts            # AUTH_CONSTANTS + AUTH_EXPIRY_LABELS
+        │   ├── types.ts                # VerifiedUser, session/JWT augmentations
+        │   ├── require-verified.ts     # requireVerifiedUser() API guard
+        │   ├── require-org-role.ts     # requireOrgRole() API guard
+        │   └── require-super-admin.ts  # requireSuperAdmin() API guard
+        ├── email/
+        │   ├── index.ts               # getEmailService() factory
+        │   ├── types.ts               # EmailService interface + EmailTemplate type
+        │   ├── templates.ts           # Email HTML builders (verify, reset, invite)
+        │   └── adapters/
+        │       └── resend-adapter.ts  # ResendEmailAdapter implementation
+        ├── services/
+        │   ├── auth-service.ts        # Signup, verify, password reset logic
+        │   ├── token-service.ts       # SHA-256 token generation + hashing
+        │   ├── org-service.ts         # Org CRUD, membership, invites
+        │   └── admin-service.ts       # Platform-wide queries (super_admin)
+        ├── storage/                    # StorageProvider interface (Phase 4 — empty)
+        └── validations/
+            ├── auth.ts                # Zod schemas: signup, login, forgot/reset password
+            └── org.ts                 # Zod schemas: createOrg, invite, changeRole, remove
 ```
 
 ---
 
 ## Data Model
 
-> **Note:** This section will be populated with actual table definitions during Phase 1. Below is the planned schema for reference.
+> **Note:** Core Tables below reflect the ACTUAL implemented schema (Phase 1). Tables marked "Planned" are not yet built.
 
-### Core Tables (Phase 1)
+### Core Tables (Phase 1 — Implemented)
 
 **organizations**
 | Column | Type | Notes |
@@ -151,22 +284,51 @@ hackforge/                              # PROJECT ROOT
 | name | text | NOT NULL |
 | password_hash | text | NOT NULL |
 | avatar_url | text | nullable |
-| email_verified | boolean | default false |
-| created_at | timestamptz | default now() |
-| updated_at | timestamptz | default now() |
-| deleted_at | timestamptz | nullable |
+| email_verified | boolean | NOT NULL, default false |
+| platform_role | platform_role enum | NOT NULL, default 'user' (user, super_admin) |
+| created_at | timestamptz | NOT NULL, default now() |
+| updated_at | timestamptz | NOT NULL, default now() |
+| deleted_at | timestamptz | nullable (soft delete) |
 
 **org_memberships**
 | Column | Type | Notes |
 |--------|------|-------|
-| id | uuid | PK |
-| user_id | uuid | FK → users.id |
-| org_id | uuid | FK → organizations.id |
-| role | org_role enum | super_admin, org_admin, member |
+| id | uuid | PK, default random |
+| user_id | uuid | FK → users.id, NOT NULL, indexed |
+| org_id | uuid | FK → organizations.id, NOT NULL, indexed |
+| role | org_role enum | NOT NULL (org_admin, member) |
 | invited_at | timestamptz | nullable |
 | joined_at | timestamptz | nullable |
+| created_at | timestamptz | NOT NULL, default now() |
+| updated_at | timestamptz | NOT NULL, default now() |
+| deleted_at | timestamptz | nullable (soft delete) |
 
-### Hackathon Tables (Phase 2)
+**org_invites**
+| Column | Type | Notes |
+|--------|------|-------|
+| id | uuid | PK, default random |
+| org_id | uuid | FK → organizations.id, NOT NULL |
+| email | text | NOT NULL, indexed |
+| role | org_role enum | NOT NULL |
+| token | text | NOT NULL, UNIQUE, indexed (SHA-256 hash) |
+| invited_by | uuid | FK → users.id, NOT NULL |
+| expires_at | timestamptz | NOT NULL |
+| accepted_at | timestamptz | nullable |
+| created_at | timestamptz | NOT NULL, default now() |
+| updated_at | timestamptz | NOT NULL, default now() |
+
+**verification_tokens**
+| Column | Type | Notes |
+|--------|------|-------|
+| id | uuid | PK, default random |
+| user_id | uuid | FK → users.id, NOT NULL, indexed |
+| token | text | NOT NULL (SHA-256 hash) |
+| type | text | NOT NULL ('email_verification' or 'password_reset') |
+| expires_at | timestamptz | NOT NULL |
+| used_at | timestamptz | nullable |
+| created_at | timestamptz | NOT NULL, default now() |
+
+### Hackathon Tables (Phase 2 — Planned)
 
 **hackathons**
 | Column | Type | Notes |
@@ -220,7 +382,7 @@ hackforge/                              # PROJECT ROOT
 | rank | integer | 1st, 2nd, 3rd, etc. |
 | image_key | text | nullable |
 
-### Registration & Teams (Phase 3)
+### Registration & Teams (Phase 3 — Planned)
 
 **registrations**
 | Column | Type | Notes |
@@ -253,7 +415,7 @@ hackforge/                              # PROJECT ROOT
 | role | team_role enum | lead, member |
 | joined_at | timestamptz | |
 
-### Submissions (Phase 4)
+### Submissions (Phase 4 — Planned)
 
 **submissions**
 | Column | Type | Notes |
@@ -276,7 +438,7 @@ hackforge/                              # PROJECT ROOT
 | value | text | nullable |
 | file_key | text | nullable (StorageProvider key) |
 
-### Judging (Phase 5)
+### Judging (Phase 5 — Planned)
 
 **evaluation_criteria**
 | Column | Type | Notes |
@@ -312,7 +474,7 @@ hackforge/                              # PROJECT ROOT
 | status | eval_status enum | pending, in_progress, completed |
 | evaluated_at | timestamptz | nullable |
 
-### Notifications (Phase 6)
+### Notifications (Phase 6 — Planned)
 
 **notifications**
 | Column | Type | Notes |
@@ -331,8 +493,14 @@ hackforge/                              # PROJECT ROOT
 
 ## Enums
 
+### Implemented (Phase 1)
 ```
-org_role: super_admin, org_admin, member
+platform_role: user, super_admin
+org_role: org_admin, member
+```
+
+### Planned (Phase 2+)
+```
 hackathon_status: draft, published, active, judging, completed, archived
 template_type: idea_sprint, build_and_ship, innovation_pipeline, open_challenge
 visibility: public, org_only, invite_only
@@ -363,4 +531,4 @@ notification_type: registration, submission, judging, result, announcement
 
 ---
 
-*This document reflects what EXISTS in the codebase. It is updated after each development phase. The planned schema above will be validated against actual implementation during each phase.*
+*This document reflects what EXISTS in the codebase as of Phase 1 completion (April 16, 2026). It is updated after each development phase. Planned tables will be validated against actual implementation during their respective phases.*
