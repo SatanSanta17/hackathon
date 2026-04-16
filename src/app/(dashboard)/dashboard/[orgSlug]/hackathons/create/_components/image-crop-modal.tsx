@@ -3,7 +3,7 @@
 import { useRef, useState } from 'react';
 import Cropper, { type ReactCropperElement } from 'react-cropper';
 import { Loader2 } from 'lucide-react';
-import 'cropperjs/dist/cropper.css';
+import 'react-cropper/node_modules/cropperjs/dist/cropper.css';
 
 import { Button } from '@/components/ui/button';
 import {

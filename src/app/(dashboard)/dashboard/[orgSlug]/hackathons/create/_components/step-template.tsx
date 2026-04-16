@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Lightbulb, Rocket, Layers, Globe, type LucideIcon } from 'lucide-react';
+import { Lightbulb, Rocket, Layers, Globe, Lock, type LucideIcon } from 'lucide-react';
 
 import {
   Card,
@@ -31,6 +31,8 @@ const TEMPLATE_ICONS: Record<string, LucideIcon> = {
 interface StepTemplateProps {
   templates: HackathonTemplate[];
   onSelect: (templateId: string) => Promise<void>;
+  /** When set, the template is locked (draft already exists). Shows read-only view. */
+  lockedTemplateType?: string | null;
   className?: string;
 }
 
@@ -38,12 +40,19 @@ interface StepTemplateProps {
 // Component
 // ---------------------------------------------------------------------------
 
-export function StepTemplate({ templates, onSelect, className }: StepTemplateProps) {
+export function StepTemplate({
+  templates,
+  onSelect,
+  lockedTemplateType,
+  className,
+}: StepTemplateProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
+  const isLocked = !!lockedTemplateType;
+
   const handleSelect = async (templateId: string) => {
-    if (isLoading) return;
+    if (isLoading || isLocked) return;
 
     setSelectedId(templateId);
     setIsLoading(true);
@@ -63,28 +72,47 @@ export function StepTemplate({ templates, onSelect, className }: StepTemplatePro
       <div>
         <h2 className="text-lg font-semibold">Choose a Template</h2>
         <p className="text-sm text-muted-foreground">
-          Select a template to get started. This determines the default phases for your hackathon.
+          {isLocked
+            ? 'The template for this hackathon has already been selected and cannot be changed.'
+            : 'Select a template to get started. This determines the default phases for your hackathon.'}
         </p>
       </div>
+
+      {/* Locked notice */}
+      {isLocked && (
+        <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200">
+          <Lock className="mt-0.5 size-4 shrink-0" />
+          <p>
+            Templates cannot be changed after creation because phases and
+            structure are tied to the selected template. To use a different
+            template, create a new hackathon.
+          </p>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         {templates.map((template) => {
           const IconComponent = TEMPLATE_ICONS[template.icon ?? ''] ?? Lightbulb;
-          const isSelected = selectedId === template.id;
+          const isActive =
+            isLocked
+              ? template.templateType === lockedTemplateType
+              : selectedId === template.id;
 
           return (
             <button
               key={template.id}
               type="button"
               onClick={() => handleSelect(template.id)}
-              disabled={isLoading}
-              className="text-left"
+              disabled={isLoading || isLocked}
+              className={cn('text-left', isLocked && 'cursor-default')}
             >
               <Card
                 className={cn(
-                  'cursor-pointer transition-all hover:border-primary',
-                  isSelected && 'ring-2 ring-primary',
-                  isLoading && !isSelected && 'opacity-50',
+                  'transition-all',
+                  !isLocked && 'cursor-pointer hover:border-primary',
+                  isActive && 'ring-2 ring-primary',
+                  isLocked && !isActive && 'opacity-50',
+                  isLoading && !isActive && 'opacity-50',
                 )}
               >
                 <CardHeader>
@@ -92,7 +120,7 @@ export function StepTemplate({ templates, onSelect, className }: StepTemplatePro
                     <div
                       className={cn(
                         'flex size-10 items-center justify-center rounded-lg',
-                        isSelected
+                        isActive
                           ? 'bg-primary text-primary-foreground'
                           : 'bg-muted text-muted-foreground',
                       )}

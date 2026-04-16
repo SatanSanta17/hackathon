@@ -68,10 +68,20 @@ export function WizardShell({
   // ---------------------------------------------------------------------------
 
   const isEditMode = !!hackathon;
-  const [currentStep, setCurrentStep] = useState(isEditMode ? 2 : 1);
+  const [currentStep, setCurrentStepRaw] = useState(isEditMode ? 2 : 1);
+  const [highestStepReached, setHighestStepReached] = useState(isEditMode ? 8 : 1);
   const [hackathonId, setHackathonId] = useState<string | null>(
     hackathon?.hackathon.id ?? null,
   );
+
+  // Wrapper that also ratchets highestStepReached
+  const setCurrentStep = useCallback((stepOrUpdater: number | ((prev: number) => number)) => {
+    setCurrentStepRaw((prev) => {
+      const next = typeof stepOrUpdater === 'function' ? stepOrUpdater(prev) : stepOrUpdater;
+      setHighestStepReached((h) => Math.max(h, next));
+      return next;
+    });
+  }, []);
   const [hackathonData, setHackathonData] = useState<Partial<Hackathon>>(
     hackathon?.hackathon ?? {},
   );
@@ -131,29 +141,26 @@ export function WizardShell({
 
   const handleStepClick = useCallback(
     (stepNumber: number) => {
-      // Can only navigate to completed steps or current step
-      if (stepNumber > currentStep) return;
       if (stepNumber === currentStep) return;
-      // Cannot go to step 1 if already past it (template is locked)
-      if (stepNumber === 1 && hackathonId) return;
+      // Can only navigate up to the highest step previously reached
+      if (stepNumber > highestStepReached) return;
+      // Step 1 is always viewable (read-only once draft exists)
       setCurrentStep(stepNumber);
     },
-    [currentStep, hackathonId],
+    [currentStep, highestStepReached, setCurrentStep],
   );
 
   const handleNext = useCallback(() => {
     if (currentStep < 8) {
       setCurrentStep((prev) => prev + 1);
     }
-  }, [currentStep]);
+  }, [currentStep, setCurrentStep]);
 
   const handleBack = useCallback(() => {
     if (currentStep > 1) {
-      // Don't go back to step 1 if hackathon already created
-      const minStep = hackathonId ? 2 : 1;
-      setCurrentStep((prev) => Math.max(prev - 1, minStep));
+      setCurrentStep((prev) => prev - 1);
     }
-  }, [currentStep, hackathonId]);
+  }, [currentStep, setCurrentStep]);
 
   const handleSaveDraft = useCallback(() => {
     toast.success('Draft saved successfully.');
@@ -204,6 +211,7 @@ export function WizardShell({
           <StepTemplate
             templates={templates}
             onSelect={handleTemplateSelect}
+            lockedTemplateType={hackathonId ? (hackathonData.templateType ?? null) : null}
           />
         );
       case 2:
@@ -270,15 +278,17 @@ export function WizardShell({
       <nav className="flex gap-2 overflow-x-auto lg:w-56 lg:shrink-0 lg:flex-col lg:overflow-x-visible">
         {STEPS.map((step) => {
           const status = getStepStatus(step.number);
-          const isClickable =
-            status === 'completed' && !(step.number === 1 && hackathonId);
+          // A step is clickable if it's within the highest reached
+          const isReachable = step.number <= highestStepReached;
+          const isClickable = isReachable && step.number !== currentStep;
+          const isDisabled = !isClickable && status !== 'current';
 
           return (
             <button
               key={step.number}
               type="button"
               onClick={() => handleStepClick(step.number)}
-              disabled={!isClickable && status !== 'current'}
+              disabled={isDisabled}
               className={cn(
                 'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
                 'whitespace-nowrap lg:whitespace-normal',
@@ -291,6 +301,10 @@ export function WizardShell({
                   !isClickable &&
                   'text-muted-foreground',
                 status === 'upcoming' &&
+                  isClickable &&
+                  'cursor-pointer text-foreground/70 hover:bg-accent hover:text-foreground',
+                status === 'upcoming' &&
+                  !isClickable &&
                   'cursor-not-allowed text-muted-foreground',
               )}
             >
@@ -302,7 +316,9 @@ export function WizardShell({
                     'bg-primary-foreground text-primary',
                   status === 'completed' &&
                     'bg-primary/10 text-primary',
-                  status === 'upcoming' &&
+                  status === 'upcoming' && isClickable &&
+                    'border border-foreground/30',
+                  status === 'upcoming' && !isClickable &&
                     'border border-muted-foreground/30',
                 )}
               >
@@ -347,8 +363,8 @@ export function WizardShell({
         {/* Step content */}
         <div className="flex-1">{renderStepContent()}</div>
 
-        {/* Navigation footer — hidden for steps that have their own Save & Continue */}
-        {currentStep > 1 && (
+        {/* Navigation footer — shown on Step 1 only when locked (view-only), always on Steps 2+ */}
+        {(currentStep > 1 || (currentStep === 1 && hackathonId)) && (
           <div className="mt-6 flex items-center justify-between border-t pt-4">
             <Button variant="outline" onClick={handleBack}>
               Back
