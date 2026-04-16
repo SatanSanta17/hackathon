@@ -15,6 +15,13 @@
       "when": 1776331447455,
       "tag": "0001_whole_brood",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1776344167993,
+      "tag": "0002_quiet_maestro",
+      "breakpoints": true
     }
   ]
 }

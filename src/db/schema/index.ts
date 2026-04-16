@@ -4,3 +4,8 @@ export * from './organizations';
 export * from './org-memberships';
 export * from './org-invites';
 export * from './verification-tokens';
+export * from './hackathons';
+export * from './phases';
+export * from './tracks';
+export * from './prizes';
+export * from './hackathon-templates';
