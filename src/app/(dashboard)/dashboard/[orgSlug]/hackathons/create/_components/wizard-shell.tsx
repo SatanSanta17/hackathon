@@ -12,6 +12,9 @@ import { StepBasicInfo } from './step-basic-info';
 import { StepTracks } from './step-tracks';
 import { StepTimeline } from './step-timeline';
 import { StepTeamRules } from './step-team-rules';
+import { StepPrizes } from './step-prizes';
+import { StepRulesFaqs } from './step-rules-faqs';
+import { StepReview } from './step-review';
 import type {
   Hackathon,
   HackathonWithRelations,
@@ -200,6 +203,10 @@ export function WizardShell({
     setPhasesData(newPhases);
   }, []);
 
+  const handlePrizesChange = useCallback((newPrizes: Prize[]) => {
+    setPrizesData(newPrizes);
+  }, []);
+
   // ---------------------------------------------------------------------------
   // Render step content
   // ---------------------------------------------------------------------------
@@ -254,15 +261,38 @@ export function WizardShell({
           />
         ) : null;
       case 6:
+        return hackathonId ? (
+          <StepPrizes
+            hackathonId={hackathonId}
+            orgId={orgId}
+            initialPrizes={prizesData}
+            onPrizesChange={handlePrizesChange}
+          />
+        ) : null;
       case 7:
+        return hackathonId ? (
+          <StepRulesFaqs
+            hackathonId={hackathonId}
+            orgId={orgId}
+            initialData={hackathonData}
+            onSave={handleHackathonSave}
+            onNext={handleNext}
+          />
+        ) : null;
       case 8:
-        return (
-          <div className="flex flex-col items-center justify-center py-16 text-center">
-            <p className="text-muted-foreground">
-              Step {currentStep}: {STEPS[currentStep - 1].name} — coming in Increment 4.
-            </p>
-          </div>
-        );
+        return hackathonId ? (
+          <StepReview
+            hackathonId={hackathonId}
+            orgId={orgId}
+            orgSlug={orgSlug}
+            hackathonData={hackathonData}
+            phasesData={phasesData}
+            tracksData={tracksData}
+            prizesData={prizesData}
+            templates={templates}
+            onNavigateToStep={setCurrentStep}
+          />
+        ) : null;
       default:
         return null;
     }
@@ -373,11 +403,10 @@ export function WizardShell({
               <Button variant="ghost" onClick={handleSaveDraft}>
                 Save Draft
               </Button>
-              {/* Steps 2, 4, 5 have their own Save & Continue — only show Next for 3, 6, 7 */}
-              {![2, 4, 5].includes(currentStep) && currentStep < 8 && (
+              {/* Steps 2, 4, 5, 7 have their own Save & Continue — hide Next for those and step 8 */}
+              {![2, 4, 5, 7, 8].includes(currentStep) && currentStep < 8 && (
                 <Button onClick={handleNext}>Next</Button>
               )}
-              {currentStep === 8 && <Button>Publish</Button>}
             </div>
           </div>
         )}
