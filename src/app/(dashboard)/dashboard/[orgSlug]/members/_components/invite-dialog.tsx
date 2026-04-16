@@ -6,6 +6,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { toast } from 'sonner';
 import { Plus } from 'lucide-react';
 
+import { inviteMemberSchema, type InviteMemberInput } from '@/lib/validations/org';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -16,10 +17,9 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import { FormField } from '@/components/ui/form/form-field';
-import { inviteMemberSchema, type InviteMemberInput } from '@/lib/validations/org';
-import { RoleSelect } from './role-select';
 import { Label } from '@/components/ui/label';
+import { FormField } from '@/components/ui/form/form-field';
+import { RoleSelect } from './role-select';
 
 interface InviteDialogProps {
   orgId: string;

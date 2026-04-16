@@ -1,9 +1,9 @@
 import { redirect } from 'next/navigation';
 import type { Metadata } from 'next';
 
-import { auth } from '@/lib/auth/auth';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { CreateOrgForm } from './_components/create-org-form';
+import { auth } from '@/lib/auth/auth';
 
 export const metadata: Metadata = {
   title: 'Create Organization — HackForge',

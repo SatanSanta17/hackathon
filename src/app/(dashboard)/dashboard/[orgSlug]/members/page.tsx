@@ -1,8 +1,8 @@
 import { redirect } from 'next/navigation';
 
+import { MemberTable } from './_components/member-table';
 import { auth } from '@/lib/auth/auth';
 import { getOrgBySlug, getOrgMembers, checkUserOrgRole } from '@/lib/services/org-service';
-import { MemberTable } from './_components/member-table';
 
 export async function generateMetadata({
   params,

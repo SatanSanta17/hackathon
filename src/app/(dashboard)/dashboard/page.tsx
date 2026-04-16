@@ -2,10 +2,10 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { Building2, Plus } from 'lucide-react';
 
-import { auth } from '@/lib/auth/auth';
-import { getUserOrgs } from '@/lib/services/org-service';
 import { Button } from '@/components/ui/button';
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { auth } from '@/lib/auth/auth';
+import { getUserOrgs } from '@/lib/services/org-service';
 
 export const metadata = {
   title: 'Dashboard — HackForge',

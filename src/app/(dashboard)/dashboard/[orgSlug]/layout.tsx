@@ -1,11 +1,10 @@
 import { redirect } from 'next/navigation';
 
-import { auth } from '@/lib/auth/auth';
-import { getOrgBySlug, getUserOrgs } from '@/lib/services/org-service';
-import { checkUserOrgRole } from '@/lib/services/org-service';
+import { SidebarInset } from '@/components/ui/sidebar';
 import { AppSidebar } from '../../_components/app-sidebar';
 import { TopBar } from '../../_components/top-bar';
-import { SidebarInset } from '@/components/ui/sidebar';
+import { auth } from '@/lib/auth/auth';
+import { getOrgBySlug, getUserOrgs, checkUserOrgRole } from '@/lib/services/org-service';
 
 export default async function OrgScopedLayout({
   children,
