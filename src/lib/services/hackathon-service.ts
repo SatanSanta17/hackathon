@@ -17,6 +17,7 @@ import type {
   HackathonTemplate,
 } from '@/db/schema';
 import { slugify } from '@/lib/utils';
+import { applyStatusResolution } from './hackathon-lifecycle';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -174,8 +175,23 @@ export async function getHackathonById(params: {
 
   if (!hackathon) return null;
 
-  const relations = await fetchHackathonRelations(hackathon.id);
-  return { hackathon, ...relations };
+  let relations = await fetchHackathonRelations(hackathon.id);
+
+  // Check-on-access: resolve status based on current date
+  const { hackathonStatus, phasesChanged } = await applyStatusResolution(
+    hackathon,
+    relations.phases,
+  );
+
+  // If phases changed, re-fetch to get updated statuses
+  if (phasesChanged) {
+    relations = await fetchHackathonRelations(hackathon.id);
+  }
+
+  return {
+    hackathon: { ...hackathon, status: hackathonStatus },
+    ...relations,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -196,8 +212,23 @@ export async function getHackathonBySlug(
 
   if (!hackathon) return null;
 
-  const relations = await fetchHackathonRelations(hackathon.id);
-  return { hackathon, ...relations };
+  let relations = await fetchHackathonRelations(hackathon.id);
+
+  // Check-on-access: resolve status based on current date
+  const { hackathonStatus, phasesChanged } = await applyStatusResolution(
+    hackathon,
+    relations.phases,
+  );
+
+  // If phases changed, re-fetch to get updated statuses
+  if (phasesChanged) {
+    relations = await fetchHackathonRelations(hackathon.id);
+  }
+
+  return {
+    hackathon: { ...hackathon, status: hackathonStatus },
+    ...relations,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -224,7 +255,23 @@ export async function getHackathonsByOrgId(params: {
     orderBy: desc(hackathons.createdAt),
   });
 
-  return result;
+  // Check-on-access for auto-transitionable statuses only
+  const autoTransitionable: Hackathon['status'][] = ['published', 'active', 'judging'];
+  const resolved = await Promise.all(
+    result.map(async (h) => {
+      if (!autoTransitionable.includes(h.status)) return h;
+
+      const hackathonPhases = await db.query.phases.findMany({
+        where: eq(phases.hackathonId, h.id),
+        orderBy: phases.order,
+      });
+
+      const { hackathonStatus } = await applyStatusResolution(h, hackathonPhases);
+      return { ...h, status: hackathonStatus };
+    }),
+  );
+
+  return resolved;
 }
 
 // ---------------------------------------------------------------------------
