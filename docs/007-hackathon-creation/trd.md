@@ -3,7 +3,7 @@
 **Document ID:** TRD-007  
 **Date:** April 16, 2026  
 **Author:** Burhanuddin C.  
-**Status:** Draft — Part 1 Written  
+**Status:** Draft — Parts 1–3 Written  
 **PRD Reference:** `docs/007-hackathon-creation/prd.md`  
 **Architecture Reference:** `docs/004-architecture.md`  
 **Conventions Reference:** `docs/003-coding-conventions.md`
@@ -2260,4 +2260,1044 @@ Part 2 is implemented in 5 increments. Each is a self-contained, pushable commit
 
 ---
 
-*Part 2 complete. Parts 3–4 will be written after Part 2 is approved and implemented.*
+*Part 2 complete.*
+
+---
+
+## Part 3: Hackathon List + Management
+
+**PRD Requirements Covered:** P3.R1 through P3.R13
+
+---
+
+### 3.1 Dependencies (New for Part 3)
+
+No new npm dependencies for Part 3. All required packages are already installed from Parts 1–2 (shadcn/ui components, Lucide icons, Sonner toasts, etc.).
+
+New shadcn/ui components to generate if not already present:
+
+```bash
+npx shadcn@latest add dropdown-menu   # Already present from Phase 1
+npx shadcn@latest add popover         # For date filter popovers
+npx shadcn@latest add calendar        # For date picker (uses react-day-picker)
+npx shadcn@latest add command         # For searchable filter dropdowns (optional)
+npx shadcn@latest add alert-dialog    # For delete confirmation
+```
+
+Check if `popover`, `calendar`, and `alert-dialog` already exist before running. If they do, skip.
+
+---
+
+### 3.2 Check-on-Access: Automated Status Transitions (P3.R13)
+
+**Decision: Check-on-access only (no cron job).** The daily cron job described in the PRD is deferred to V2. For V1 with a single customer (InMobi), every hackathon that matters will be visited regularly by admins or participants, making check-on-access sufficient.
+
+**New file: `src/lib/services/hackathon-lifecycle.ts`**
+
+This file is a standalone module. It contains the status resolution logic and is called by the service layer — it does not import from `next/server` or any framework-specific module.
+
+```typescript
+import { eq, and, isNull, lte } from 'drizzle-orm';
+
+import { db } from '@/db';
+import { hackathons, phases } from '@/db/schema';
+import type { Hackathon, Phase } from '@/db/schema';
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+/** Status transitions that can happen automatically based on dates */
+type AutoTransitionableStatus = 'published' | 'active' | 'judging';
+
+/** Result of a status resolution check */
+interface StatusResolution {
+  hackathonChanged: boolean;
+  newHackathonStatus?: Hackathon['status'];
+  phaseChanges: Array<{ phaseId: string; newStatus: Phase['status'] }>;
+}
+
+// ---------------------------------------------------------------------------
+// Valid auto-transitions (date-driven only — never draft→published)
+// ---------------------------------------------------------------------------
+
+const AUTO_TRANSITIONS: Record<AutoTransitionableStatus, Hackathon['status']> = {
+  published: 'active',
+  active: 'judging',
+  judging: 'completed',
+};
+
+// ---------------------------------------------------------------------------
+// Core: Resolve hackathon + phase statuses based on current time
+// ---------------------------------------------------------------------------
+
+/**
+ * Compares a hackathon's phase dates against the current time and determines
+ * if any status transitions are due. Does NOT write to the database — returns
+ * what needs to change so the caller can decide when to persist.
+ *
+ * Rules:
+ * 1. Phase-level: if now >= phase.end_date and phase is 'active' → 'completed'.
+ *    If now >= phase.start_date and now < phase.end_date and phase is 'upcoming' → 'active'.
+ * 2. Hackathon-level:
+ *    - 'published' → 'active': when the first phase's start_date has passed.
+ *    - 'active' → 'judging': when all non-judging/non-results phases are completed
+ *      AND a judging phase exists and its start_date has passed.
+ *    - 'judging' → 'completed': when the last phase's end_date has passed.
+ * 3. 'draft' → 'published' is NEVER automatic (manual admin action only).
+ * 4. 'completed' → 'archived' is NEVER automatic (manual admin action only).
+ */
+export function resolveStatuses(
+  hackathon: Hackathon,
+  hackathonPhases: Phase[],
+  now: Date = new Date(),
+): StatusResolution {
+  const result: StatusResolution = {
+    hackathonChanged: false,
+    phaseChanges: [],
+  };
+
+  // Skip statuses that don't auto-transition
+  if (hackathon.status === 'draft' || hackathon.status === 'completed' || hackathon.status === 'archived') {
+    return result;
+  }
+
+  // Sort phases by order for reliable processing
+  const sortedPhases = [...hackathonPhases].sort((a, b) => a.order - b.order);
+
+  // --- Phase-level transitions ---
+  for (const phase of sortedPhases) {
+    if (!phase.startDate || !phase.endDate) continue;
+
+    const start = new Date(phase.startDate);
+    const end = new Date(phase.endDate);
+
+    if (phase.status === 'upcoming' && now >= start && now < end) {
+      result.phaseChanges.push({ phaseId: phase.id, newStatus: 'active' });
+    } else if (phase.status === 'upcoming' && now >= end) {
+      // Phase was missed entirely (start and end both passed while 'upcoming')
+      result.phaseChanges.push({ phaseId: phase.id, newStatus: 'completed' });
+    } else if (phase.status === 'active' && now >= end) {
+      result.phaseChanges.push({ phaseId: phase.id, newStatus: 'completed' });
+    }
+  }
+
+  // --- Hackathon-level transitions ---
+  // Apply phase changes in-memory to evaluate hackathon status
+  const effectivePhases = sortedPhases.map((p) => {
+    const change = result.phaseChanges.find((c) => c.phaseId === p.id);
+    return change ? { ...p, status: change.newStatus } : p;
+  });
+
+  const firstPhase = effectivePhases[0];
+  const lastPhase = effectivePhases[effectivePhases.length - 1];
+
+  if (hackathon.status === 'published' && firstPhase?.startDate) {
+    // published → active: first phase has started
+    if (now >= new Date(firstPhase.startDate)) {
+      result.hackathonChanged = true;
+      result.newHackathonStatus = 'active';
+    }
+  } else if (hackathon.status === 'active') {
+    // active → judging: look for a judging phase whose start_date has passed
+    const judgingPhase = effectivePhases.find((p) => p.type === 'judging');
+    if (judgingPhase?.startDate && now >= new Date(judgingPhase.startDate)) {
+      result.hackathonChanged = true;
+      result.newHackathonStatus = 'judging';
+    }
+  } else if (hackathon.status === 'judging' && lastPhase?.endDate) {
+    // judging → completed: last phase has ended
+    if (now >= new Date(lastPhase.endDate)) {
+      result.hackathonChanged = true;
+      result.newHackathonStatus = 'completed';
+    }
+  }
+
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// Apply: Persist resolved status changes to the database
+// ---------------------------------------------------------------------------
+
+/**
+ * Runs resolveStatuses() and writes any changes to the database.
+ * Returns the (possibly updated) hackathon status.
+ *
+ * Call this from getHackathonBySlug, getHackathonById, and
+ * getHackathonsByOrgId before returning results.
+ */
+export async function applyStatusResolution(
+  hackathon: Hackathon,
+  hackathonPhases: Phase[],
+): Promise<{ hackathonStatus: Hackathon['status']; phasesChanged: boolean }> {
+  const resolution = resolveStatuses(hackathon, hackathonPhases);
+
+  let phasesChanged = false;
+
+  // Apply phase changes
+  if (resolution.phaseChanges.length > 0) {
+    phasesChanged = true;
+    for (const change of resolution.phaseChanges) {
+      await db
+        .update(phases)
+        .set({ status: change.newStatus, updatedAt: new Date() })
+        .where(eq(phases.id, change.phaseId));
+    }
+    console.log('[hackathon-lifecycle] Phase statuses updated:', resolution.phaseChanges);
+  }
+
+  // Apply hackathon status change
+  if (resolution.hackathonChanged && resolution.newHackathonStatus) {
+    await db
+      .update(hackathons)
+      .set({ status: resolution.newHackathonStatus, updatedAt: new Date() })
+      .where(eq(hackathons.id, hackathon.id));
+
+    console.log('[hackathon-lifecycle] Hackathon status updated:', {
+      id: hackathon.id,
+      from: hackathon.status,
+      to: resolution.newHackathonStatus,
+    });
+
+    return { hackathonStatus: resolution.newHackathonStatus, phasesChanged };
+  }
+
+  return { hackathonStatus: hackathon.status, phasesChanged };
+}
+```
+
+**Integration into `hackathon-service.ts`:**
+
+Modify three existing functions to call `applyStatusResolution` after fetching:
+
+1. **`getHackathonById`** — after fetching the hackathon and relations, call `applyStatusResolution(hackathon, relations.phases)`. If the hackathon status changed, update the returned object. If phases changed, re-fetch phases to return the updated statuses.
+
+2. **`getHackathonBySlug`** — same pattern as above.
+
+3. **`getHackathonsByOrgId`** — for each hackathon in the list, fetch its phases and call `applyStatusResolution`. Since this is a list view, optimize by only fetching phases for hackathons with status in `['published', 'active', 'judging']` (the only statuses that auto-transition). Drafts, completed, and archived are skipped.
+
+**Example modification to `getHackathonById`:**
+
+```typescript
+import { applyStatusResolution } from './hackathon-lifecycle';
+
+export async function getHackathonById(params: {
+  hackathonId: string;
+  orgId: string;
+}): Promise<HackathonWithRelations | null> {
+  console.log('[hackathon-service] getHackathonById:', { hackathonId: params.hackathonId });
+
+  const hackathon = await db.query.hackathons.findFirst({
+    where: and(
+      eq(hackathons.id, params.hackathonId),
+      eq(hackathons.orgId, params.orgId),
+      isNull(hackathons.deletedAt),
+    ),
+  });
+
+  if (!hackathon) return null;
+
+  let relations = await fetchHackathonRelations(hackathon.id);
+
+  // Check-on-access: resolve status based on current date
+  const { hackathonStatus, phasesChanged } = await applyStatusResolution(
+    hackathon,
+    relations.phases,
+  );
+
+  // If phases changed, re-fetch to get updated statuses
+  if (phasesChanged) {
+    relations = await fetchHackathonRelations(hackathon.id);
+  }
+
+  return {
+    hackathon: { ...hackathon, status: hackathonStatus },
+    ...relations,
+  };
+}
+```
+
+**Example modification to `getHackathonsByOrgId`:**
+
+```typescript
+import { applyStatusResolution } from './hackathon-lifecycle';
+
+export async function getHackathonsByOrgId(params: {
+  orgId: string;
+  includeArchived?: boolean;
+}): Promise<Hackathon[]> {
+  console.log('[hackathon-service] getHackathonsByOrgId:', { orgId: params.orgId });
+
+  const conditions = [
+    eq(hackathons.orgId, params.orgId),
+    isNull(hackathons.deletedAt),
+  ];
+
+  if (!params.includeArchived) {
+    conditions.push(ne(hackathons.status, 'archived'));
+  }
+
+  const result = await db.query.hackathons.findMany({
+    where: and(...conditions),
+    orderBy: desc(hackathons.createdAt),
+  });
+
+  // Check-on-access for auto-transitionable statuses only
+  const autoTransitionable = ['published', 'active', 'judging'];
+  const resolved = await Promise.all(
+    result.map(async (h) => {
+      if (!autoTransitionable.includes(h.status)) return h;
+
+      const hackathonPhases = await db.query.phases.findMany({
+        where: eq(phases.hackathonId, h.id),
+        orderBy: phases.order,
+      });
+
+      const { hackathonStatus } = await applyStatusResolution(h, hackathonPhases);
+      return { ...h, status: hackathonStatus };
+    }),
+  );
+
+  return resolved;
+}
+```
+
+**Why a separate file?** The lifecycle logic is pure — it takes data in, returns decisions out. `resolveStatuses` is independently testable without touching the database. `applyStatusResolution` is the side-effecting wrapper. This separation makes it easy to add unit tests and to reuse the resolution logic if a cron job is added in V2.
+
+---
+
+### 3.3 New API Routes (P3.R6, P3.R7)
+
+Two new API routes are needed for Part 3 actions.
+
+**New file: `src/app/api/hackathons/[hackathonId]/transition/route.ts`**
+
+```typescript
+import { NextResponse } from 'next/server';
+
+import { requireOrgRole } from '@/lib/auth/require-org-role';
+import { transitionStatusSchema } from '@/lib/validations/hackathon';
+import { transitionHackathonStatus } from '@/lib/services/hackathon-service';
+
+/**
+ * POST /api/hackathons/[hackathonId]/transition — Manually transition hackathon status
+ *
+ * Body: { orgId: string, targetStatus: string }
+ *
+ * Valid transitions: draft→published, published→active, active→judging,
+ *                    judging→completed, completed→archived
+ */
+export async function POST(
+  request: Request,
+  { params }: { params: Promise<{ hackathonId: string }> },
+) {
+  const { hackathonId } = await params;
+  console.log('[api/hackathons/[id]/transition] POST:', { hackathonId });
+
+  try {
+    const body = await request.json();
+    const { orgId, ...data } = body;
+
+    if (!orgId) {
+      return NextResponse.json(
+        { message: 'Organization ID is required.' },
+        { status: 400 },
+      );
+    }
+
+    // Only org_admin can transition statuses
+    const authResult = await requireOrgRole({ orgId, allowedRoles: ['org_admin'] });
+    if ('error' in authResult) return authResult.error;
+
+    const parsed = transitionStatusSchema.safeParse(data);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { message: 'Validation failed.', errors: parsed.error.flatten().fieldErrors },
+        { status: 400 },
+      );
+    }
+
+    const result = await transitionHackathonStatus({
+      hackathonId,
+      orgId,
+      targetStatus: parsed.data.targetStatus,
+    });
+
+    if (!result.success) {
+      if (result.error === 'HACKATHON_NOT_FOUND') {
+        return NextResponse.json({ message: 'Hackathon not found.' }, { status: 404 });
+      }
+      return NextResponse.json({ message: result.error ?? 'Transition failed.' }, { status: 400 });
+    }
+
+    return NextResponse.json({ message: 'Status updated.' });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Internal server error.';
+    console.error('[api/hackathons/[id]/transition] POST error:', message);
+    return NextResponse.json({ message }, { status: 500 });
+  }
+}
+```
+
+**New file: `src/app/api/hackathons/[hackathonId]/delete/route.ts`**
+
+```typescript
+import { NextResponse } from 'next/server';
+
+import { requireOrgRole } from '@/lib/auth/require-org-role';
+import { softDeleteHackathon } from '@/lib/services/hackathon-service';
+
+/**
+ * POST /api/hackathons/[hackathonId]/delete — Soft-delete a draft hackathon
+ *
+ * Body: { orgId: string }
+ *
+ * Only draft hackathons can be deleted.
+ */
+export async function POST(
+  request: Request,
+  { params }: { params: Promise<{ hackathonId: string }> },
+) {
+  const { hackathonId } = await params;
+  console.log('[api/hackathons/[id]/delete] POST:', { hackathonId });
+
+  try {
+    const body = await request.json();
+    const { orgId } = body;
+
+    if (!orgId) {
+      return NextResponse.json(
+        { message: 'Organization ID is required.' },
+        { status: 400 },
+      );
+    }
+
+    // Only org_admin can delete
+    const authResult = await requireOrgRole({ orgId, allowedRoles: ['org_admin'] });
+    if ('error' in authResult) return authResult.error;
+
+    const result = await softDeleteHackathon({ hackathonId, orgId });
+
+    if (!result.success) {
+      if (result.error === 'HACKATHON_NOT_FOUND') {
+        return NextResponse.json({ message: 'Hackathon not found.' }, { status: 404 });
+      }
+      if (result.error === 'ONLY_DRAFTS_CAN_BE_DELETED') {
+        return NextResponse.json(
+          { message: 'Only draft hackathons can be deleted.' },
+          { status: 400 },
+        );
+      }
+      return NextResponse.json({ message: result.error ?? 'Delete failed.' }, { status: 500 });
+    }
+
+    return NextResponse.json({ message: 'Hackathon deleted.' });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Internal server error.';
+    console.error('[api/hackathons/[id]/delete] POST error:', message);
+    return NextResponse.json({ message }, { status: 500 });
+  }
+}
+```
+
+**Note:** The existing `transitionHackathonStatus` and `softDeleteHackathon` functions in `hackathon-service.ts` already contain all the business logic. These API routes are thin wrappers that add auth checks and HTTP formatting.
+
+---
+
+### 3.4 Hackathon Stats Service Method (P3.R12)
+
+**Add to `src/lib/services/hackathon-service.ts`:**
+
+```typescript
+// ---------------------------------------------------------------------------
+// Get Hackathon Stats (P3.R12 — dashboard stat cards)
+// ---------------------------------------------------------------------------
+
+export interface HackathonStats {
+  total: number;
+  active: number;
+  draft: number;
+}
+
+export async function getHackathonStats(orgId: string): Promise<HackathonStats> {
+  console.log('[hackathon-service] getHackathonStats:', { orgId });
+
+  const allHackathons = await db.query.hackathons.findMany({
+    where: and(
+      eq(hackathons.orgId, orgId),
+      isNull(hackathons.deletedAt),
+    ),
+    columns: { id: true, status: true },
+  });
+
+  return {
+    total: allHackathons.length,
+    active: allHackathons.filter((h) => h.status === 'active').length,
+    draft: allHackathons.filter((h) => h.status === 'draft').length,
+  };
+}
+```
+
+**Why not SQL COUNT?** For V1 with small hackathon counts per org (likely under 50), fetching all and counting in JS is simpler, avoids multiple queries, and is fast enough. If counts grow to hundreds, this can be refactored to SQL aggregate queries.
+
+---
+
+### 3.5 Hackathon List Page (P3.R1 – P3.R6, P3.R9 – P3.R11)
+
+**Replace: `src/app/(dashboard)/dashboard/[orgSlug]/hackathons/page.tsx`**
+
+The current page is a placeholder. Replace it entirely with a server component that fetches hackathon data and renders the list.
+
+```typescript
+import { redirect } from 'next/navigation';
+
+import { auth } from '@/lib/auth/auth';
+import { getOrgBySlug, checkUserOrgRole } from '@/lib/services/org-service';
+import { getHackathonsByOrgId } from '@/lib/services/hackathon-service';
+import { HackathonList } from './_components/hackathon-list';
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ orgSlug: string }>;
+}) {
+  const { orgSlug } = await params;
+  return { title: `Hackathons — ${orgSlug} — HackForge` };
+}
+
+export default async function HackathonsPage({
+  params,
+}: {
+  params: Promise<{ orgSlug: string }>;
+}) {
+  const { orgSlug } = await params;
+
+  const session = await auth();
+  if (!session?.user?.id) {
+    redirect('/login');
+  }
+
+  const org = await getOrgBySlug(orgSlug);
+  if (!org) {
+    redirect('/dashboard');
+  }
+
+  // Fetch with archived for filtering
+  const hackathons = await getHackathonsByOrgId({
+    orgId: org.id,
+    includeArchived: true,
+  });
+
+  // Determine user role for permission gating
+  const orgRole = await checkUserOrgRole({
+    userId: session.user.id,
+    orgId: org.id,
+  });
+
+  const isAdmin = orgRole?.role === 'org_admin';
+
+  return (
+    <div className="space-y-6">
+      <HackathonList
+        hackathons={hackathons}
+        orgSlug={orgSlug}
+        orgId={org.id}
+        isAdmin={isAdmin}
+      />
+    </div>
+  );
+}
+```
+
+**Key notes:**
+- Fetches with `includeArchived: true` because the client-side filter needs access to all statuses.
+- Passes `isAdmin` boolean to the client component so it can show/hide admin actions.
+- `getHackathonsByOrgId` now runs check-on-access (from Section 3.2), so statuses are auto-resolved before rendering.
+
+---
+
+### 3.6 Hackathon List Client Component (P3.R1 – P3.R6, P3.R9 – P3.R11)
+
+**New file: `src/app/(dashboard)/dashboard/[orgSlug]/hackathons/_components/hackathon-list.tsx`**
+
+This is the main client component for the hackathon management page. It handles search, filters, and actions.
+
+```typescript
+'use client';
+
+import { useState, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { toast } from 'sonner';
+import {
+  Trophy,
+  Plus,
+  Search,
+  MoreHorizontal,
+  Pencil,
+  ExternalLink,
+  ArrowRight,
+  Archive,
+  Trash2,
+  Calendar,
+  Filter,
+} from 'lucide-react';
+
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent } from '@/components/ui/card';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Skeleton } from '@/components/ui/skeleton';
+import type { Hackathon } from '@/lib/services/hackathon-service';
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface HackathonListProps {
+  hackathons: Hackathon[];
+  orgSlug: string;
+  orgId: string;
+  isAdmin: boolean;
+  className?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const STATUS_OPTIONS = [
+  { value: 'all', label: 'All' },
+  { value: 'draft', label: 'Draft' },
+  { value: 'published', label: 'Published' },
+  { value: 'active', label: 'Active' },
+  { value: 'judging', label: 'Judging' },
+  { value: 'completed', label: 'Completed' },
+  { value: 'archived', label: 'Archived' },
+] as const;
+
+const STATUS_BADGE_VARIANT: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
+  draft: 'secondary',
+  published: 'default',
+  active: 'default',
+  judging: 'default',
+  completed: 'outline',
+  archived: 'outline',
+};
+
+/** Valid forward transitions for the context menu */
+const NEXT_TRANSITION: Record<string, { label: string; target: string } | undefined> = {
+  draft: { label: 'Publish', target: 'published' },
+  published: { label: 'Start (Activate)', target: 'active' },
+  active: { label: 'Move to Judging', target: 'judging' },
+  judging: { label: 'Mark Completed', target: 'completed' },
+  completed: { label: 'Archive', target: 'archived' },
+};
+
+// ... (component implementation follows)
+```
+
+**Component structure:**
+
+The `HackathonList` component contains:
+
+1. **Header row:** Title "Hackathons" + "Create Hackathon" button (visible only if `isAdmin`).
+2. **Filter bar:** Search input (filters by title, client-side) + status pill selector + date range pickers ("Created after" / "Created before").
+3. **Hackathon cards grid:** Responsive grid (`sm:grid-cols-2 lg:grid-cols-3`) of hackathon cards.
+4. **Empty state:** When no hackathons match filters (or none exist at all).
+
+**Each hackathon card shows:**
+- Cover image thumbnail (or a gradient placeholder using `templateType` as seed for color).
+- Title (truncated if long).
+- Status badge (color-coded using `STATUS_BADGE_VARIANT`).
+- Template type (human-readable label, e.g., "Build & Ship").
+- Created date (formatted with `Intl.DateTimeFormat`).
+- Participant count placeholder ("0 participants").
+- Three-dot context menu (admin only).
+
+**Context menu actions (admin only):**
+
+| Action | Condition | Behavior |
+|--------|-----------|----------|
+| Edit | Always (admin) | Navigate to `/dashboard/[orgSlug]/hackathons/[hackathonId]/edit` |
+| View Landing Page | Status is not `draft` | Open `/hackathons/[slug]` in new tab |
+| Publish | Status is `draft` | Call `POST /api/hackathons/[id]/publish` → refresh |
+| Next Transition | Status has a valid forward transition | Call `POST /api/hackathons/[id]/transition` → refresh |
+| Archive | Status is `completed` | Call `POST /api/hackathons/[id]/transition` with `targetStatus: 'archived'` → refresh |
+| Delete | Status is `draft` | Show AlertDialog confirmation → Call `POST /api/hackathons/[id]/delete` → refresh |
+
+**Filtering logic (client-side, P3.R2 – P3.R4):**
+
+```typescript
+const filtered = useMemo(() => {
+  let result = hackathons;
+
+  // Status filter (default: 'all' excludes archived)
+  if (statusFilter === 'all') {
+    result = result.filter((h) => h.status !== 'archived');
+  } else {
+    result = result.filter((h) => h.status === statusFilter);
+  }
+
+  // Search filter (by title, case-insensitive)
+  if (searchQuery.trim()) {
+    const q = searchQuery.toLowerCase().trim();
+    result = result.filter((h) => h.title.toLowerCase().includes(q));
+  }
+
+  // Date filter
+  if (dateFrom) {
+    result = result.filter((h) => new Date(h.createdAt) >= dateFrom);
+  }
+  if (dateTo) {
+    const endOfDay = new Date(dateTo);
+    endOfDay.setHours(23, 59, 59, 999);
+    result = result.filter((h) => new Date(h.createdAt) <= endOfDay);
+  }
+
+  return result;
+}, [hackathons, statusFilter, searchQuery, dateFrom, dateTo]);
+```
+
+**API call helper within the component:**
+
+```typescript
+async function handleTransition(hackathonId: string, targetStatus: string) {
+  try {
+    const res = await fetch(`/api/hackathons/${hackathonId}/transition`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orgId, targetStatus }),
+    });
+
+    if (!res.ok) {
+      const data = await res.json();
+      toast.error(data.message ?? 'Failed to update status.');
+      return;
+    }
+
+    toast.success('Status updated.');
+    router.refresh(); // Re-run server component to get fresh data
+  } catch {
+    toast.error('Something went wrong.');
+  }
+}
+
+async function handleDelete(hackathonId: string) {
+  try {
+    const res = await fetch(`/api/hackathons/${hackathonId}/delete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orgId }),
+    });
+
+    if (!res.ok) {
+      const data = await res.json();
+      toast.error(data.message ?? 'Failed to delete hackathon.');
+      return;
+    }
+
+    toast.success('Draft deleted.');
+    router.refresh();
+  } catch {
+    toast.error('Something went wrong.');
+  }
+}
+```
+
+**Empty state (P3.R9):**
+
+```tsx
+{filtered.length === 0 && (
+  <div className="flex flex-col items-center justify-center rounded-md border border-dashed py-16 text-center">
+    <Trophy className="size-10 text-muted-foreground" />
+    <h2 className="mt-4 text-lg font-semibold">
+      {hackathons.length === 0 ? 'No hackathons yet' : 'No hackathons match your filters'}
+    </h2>
+    <p className="mt-1 text-sm text-muted-foreground">
+      {hackathons.length === 0
+        ? 'Create your first hackathon to get started.'
+        : 'Try adjusting your search or filters.'}
+    </p>
+    {hackathons.length === 0 && isAdmin && (
+      <Button asChild className="mt-4">
+        <Link href={`/dashboard/${orgSlug}/hackathons/create`}>
+          <Plus className="mr-2 size-4" />
+          Create your first hackathon
+        </Link>
+      </Button>
+    )}
+  </div>
+)}
+```
+
+**Member vs Admin view (P3.R11):**
+
+- `member` sees the same list and filters but:
+  - No "Create Hackathon" button.
+  - No three-dot context menu on cards.
+  - Can click a card title to view the landing page (if not draft).
+- `isAdmin` prop controls all of these visibility toggles.
+
+---
+
+### 3.7 Org Dashboard Update (P3.R12)
+
+**Modify: `src/app/(dashboard)/dashboard/[orgSlug]/page.tsx`**
+
+Replace the hardcoded stat values with real data from `getHackathonStats`:
+
+```typescript
+import { redirect } from 'next/navigation';
+import { Trophy, Users, Calendar } from 'lucide-react';
+
+import { auth } from '@/lib/auth/auth';
+import { getOrgBySlug } from '@/lib/services/org-service';
+import { getHackathonStats } from '@/lib/services/hackathon-service';
+import { StatCard } from './_components/stat-card';
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ orgSlug: string }>;
+}) {
+  const { orgSlug } = await params;
+  return { title: `Dashboard — ${orgSlug} — HackForge` };
+}
+
+export default async function OrgDashboardPage({
+  params,
+}: {
+  params: Promise<{ orgSlug: string }>;
+}) {
+  const { orgSlug } = await params;
+
+  const session = await auth();
+  if (!session?.user?.id) {
+    redirect('/login');
+  }
+
+  const org = await getOrgBySlug(orgSlug);
+  if (!org) {
+    redirect('/dashboard');
+  }
+
+  const stats = await getHackathonStats(org.id);
+
+  return (
+    <div className="space-y-6">
+      <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
+
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <StatCard
+          title="Hackathons"
+          value={stats.total}
+          icon={<Trophy className="size-5" />}
+        />
+        <StatCard
+          title="Active"
+          value={stats.active}
+          icon={<Calendar className="size-5" />}
+        />
+        <StatCard
+          title="Drafts"
+          value={stats.draft}
+          icon={<Users className="size-5" />}
+        />
+      </div>
+    </div>
+  );
+}
+```
+
+**Changes from current implementation:**
+- Imports `auth`, `getOrgBySlug`, and `getHackathonStats`.
+- Resolves org from slug to get `org.id`.
+- Calls `getHackathonStats(org.id)` for real counts.
+- Replaces the hardcoded "0" values and "None" with `stats.total`, `stats.active`, `stats.draft`.
+- Changes the third stat card from "Upcoming" / "None" to "Drafts" / count (more actionable for admin — "you have X drafts to finish").
+- Updates icons: second card becomes `Calendar` (active), third becomes a relevant icon for drafts.
+
+**Note on the "Participants" stat:** Participant count requires the `registrations` table from Phase 3. It's replaced with "Drafts" for now and will become "Participants" once Phase 3 (Registration & Teams) is implemented.
+
+---
+
+### 3.8 Edit Published Hackathon Restrictions (P3.R8)
+
+The edit page already exists at `src/app/(dashboard)/dashboard/[orgSlug]/hackathons/[hackathonId]/edit/page.tsx` and reuses `WizardShell` with the `hackathon` prop (from Part 2).
+
+**What Part 3 adds:** When editing a **published** (or later-stage) hackathon, certain fields are locked:
+
+1. **Template (Step 1):** Already locked in edit mode — `WizardShell` renders Step 1 as read-only with a lock notice when `hackathon` prop is provided.
+2. **Phase structure (Step 4):** Phases cannot be added, removed, or reordered. Only dates and names can be edited. This is already the behavior (the wizard only shows date pickers for existing phases, no add/remove UI).
+
+**Modification to `WizardShell`:** Add a prop `isPublished` (derived from `hackathon.hackathon.status !== 'draft'`) that the wizard passes to step components. Steps that need to restrict editing for published hackathons can check this prop. For V1, the current behavior already satisfies this requirement since:
+- Step 1 is already read-only in edit mode.
+- Steps 2, 3, 5, 6, 7 allow editing (PRD says published hackathons can edit title, description, tracks, prizes, rules).
+- Step 4 already only allows date/name editing (no structural changes).
+
+**No code changes needed** — the existing wizard behavior already satisfies P3.R8. Document this as a verification item.
+
+---
+
+### 3.9 Loading State (P3.R10)
+
+**New file: `src/app/(dashboard)/dashboard/[orgSlug]/hackathons/loading.tsx`**
+
+```typescript
+import { Skeleton } from '@/components/ui/skeleton';
+
+export default function HackathonsLoading() {
+  return (
+    <div className="space-y-6">
+      {/* Header skeleton */}
+      <div className="flex items-center justify-between">
+        <Skeleton className="h-8 w-40" />
+        <Skeleton className="h-10 w-44" />
+      </div>
+
+      {/* Filter bar skeleton */}
+      <div className="flex gap-3">
+        <Skeleton className="h-10 w-64" />
+        <Skeleton className="h-10 w-32" />
+      </div>
+
+      {/* Card grid skeleton */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="rounded-lg border p-4 space-y-3">
+            <Skeleton className="h-32 w-full rounded-md" />
+            <Skeleton className="h-5 w-3/4" />
+            <div className="flex gap-2">
+              <Skeleton className="h-5 w-16" />
+              <Skeleton className="h-5 w-20" />
+            </div>
+            <Skeleton className="h-4 w-1/2" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+```
+
+This is a Next.js loading convention file. It renders automatically while the server component is fetching data.
+
+---
+
+### 3.10 Implementation Increments
+
+Part 3 should be implemented in the following order:
+
+---
+
+**Increment 3A: Check-on-access lifecycle engine**
+
+- Create `src/lib/services/hackathon-lifecycle.ts` with `resolveStatuses()` and `applyStatusResolution()`
+- Modify `getHackathonById()` in `hackathon-service.ts` to call `applyStatusResolution` after fetch
+- Modify `getHackathonBySlug()` in `hackathon-service.ts` to call `applyStatusResolution` after fetch
+- Modify `getHackathonsByOrgId()` in `hackathon-service.ts` to call `applyStatusResolution` for auto-transitionable statuses
+
+**Verify:**
+- Create a hackathon, publish it, set the first phase start_date to the past → on next fetch, status should auto-transition to `active`
+- Set a phase's end_date to the past → on next fetch, phase status should flip to `completed` and next phase to `active`
+- Draft hackathons are never auto-transitioned
+- Completed and archived hackathons are never auto-transitioned
+
+---
+
+**Increment 3B: API routes + stats service method**
+
+- Create `src/app/api/hackathons/[hackathonId]/transition/route.ts`
+- Create `src/app/api/hackathons/[hackathonId]/delete/route.ts`
+- Add `getHackathonStats()` to `hackathon-service.ts`
+
+**Verify:**
+- `POST /api/hackathons/[id]/transition` with `{ orgId, targetStatus: 'active' }` on a published hackathon returns 200
+- Invalid transition (e.g., draft → active) returns 400
+- `POST /api/hackathons/[id]/delete` on a draft returns 200; on a published returns 400
+- Non-admin gets 403 on both routes
+- `getHackathonStats` returns correct counts
+
+---
+
+**Increment 3C: Hackathon list page**
+
+- Replace `src/app/(dashboard)/dashboard/[orgSlug]/hackathons/page.tsx` with the server component
+- Create `src/app/(dashboard)/dashboard/[orgSlug]/hackathons/_components/hackathon-list.tsx` (client component)
+- Create `src/app/(dashboard)/dashboard/[orgSlug]/hackathons/loading.tsx`
+- Add any missing shadcn/ui components (`alert-dialog`, `popover`, `calendar`)
+
+**Verify:**
+- Hackathon list renders all org hackathons with correct info
+- Search filters by title in real-time
+- Status filter works; "All" excludes archived; "Archived" shows only archived
+- Date filter narrows by creation date
+- "Create Hackathon" button visible only for admin
+- Context menu actions work: Edit navigates, View opens new tab, Publish/Transition/Archive/Delete call APIs and refresh
+- Delete shows confirmation dialog before executing
+- Empty state shows when no hackathons exist
+- Empty state shows "no matches" message when filters return zero results
+- Loading skeleton renders during data fetch
+- Member role sees list but no admin actions
+
+---
+
+**Increment 3D: Dashboard stat cards**
+
+- Modify `src/app/(dashboard)/dashboard/[orgSlug]/page.tsx` to fetch real stats
+- Wire stat cards to `getHackathonStats()` data
+
+**Verify:**
+- Dashboard shows correct total/active/draft hackathon counts
+- Counts update after creating, publishing, or deleting a hackathon
+
+---
+
+### 3.11 Files Changed Summary
+
+| File | Action | Requirement |
+|------|--------|-------------|
+| `src/lib/services/hackathon-lifecycle.ts` | Created | P3.R13 |
+| `src/lib/services/hackathon-service.ts` | Modified | P3.R12, P3.R13 (check-on-access integration + getHackathonStats) |
+| `src/app/api/hackathons/[hackathonId]/transition/route.ts` | Created | P3.R6, P3.R7 |
+| `src/app/api/hackathons/[hackathonId]/delete/route.ts` | Created | P3.R6 |
+| `src/app/(dashboard)/dashboard/[orgSlug]/hackathons/page.tsx` | Replaced | P3.R1, P3.R11 |
+| `src/app/(dashboard)/dashboard/[orgSlug]/hackathons/_components/hackathon-list.tsx` | Created | P3.R1–P3.R6, P3.R9, P3.R11 |
+| `src/app/(dashboard)/dashboard/[orgSlug]/hackathons/loading.tsx` | Created | P3.R10 |
+| `src/app/(dashboard)/dashboard/[orgSlug]/page.tsx` | Modified | P3.R12 |
+| `src/components/ui/alert-dialog.tsx` | Created (shadcn generate) | P3.R6 (delete confirmation) |
+| `src/components/ui/popover.tsx` | Created (shadcn generate, if missing) | P3.R4 (date filter) |
+| `src/components/ui/calendar.tsx` | Created (shadcn generate, if missing) | P3.R4 (date filter) |
+
+---
+
+### 3.12 Deferred from Part 3
+
+| Item | Reason | Target |
+|------|--------|--------|
+| Daily cron job for stale status updates | Check-on-access is sufficient for V1 with single customer | V2 |
+| Server-side search/pagination | Client-side filtering is sufficient for small hackathon counts per org | V2 (when count exceeds ~100) |
+| Bulk actions (archive multiple, delete multiple) | Not critical for V1 | V2 |
+
+---
+
+*Part 3 complete. Part 4 (Public Hackathon Landing Page) will be written after Part 3 is approved and implemented.*
