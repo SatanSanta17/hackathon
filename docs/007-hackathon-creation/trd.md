@@ -3,7 +3,7 @@
 **Document ID:** TRD-007  
 **Date:** April 16, 2026  
 **Author:** Burhanuddin C.  
-**Status:** Draft — Parts 1–3 Written  
+**Status:** Draft — Parts 1–4 Written  
 **PRD Reference:** `docs/007-hackathon-creation/prd.md`  
 **Architecture Reference:** `docs/004-architecture.md`  
 **Conventions Reference:** `docs/003-coding-conventions.md`
@@ -3306,4 +3306,1570 @@ Part 3 should be implemented in the following order:
 
 ---
 
-*Part 3 complete. Part 4 (Public Hackathon Landing Page) will be written after Part 3 is approved and implemented.*
+*Part 3 complete.*
+
+---
+
+## Part 4: Public Hackathon Landing Page
+
+**PRD Requirements Covered:** P4.R1 through P4.R15
+
+---
+
+### 4.1 Dependencies (New for Part 4)
+
+No new npm dependencies required for Part 4. Everything needed is already installed:
+
+- **next/image** — Already available (Next.js built-in). Used for cover images and prize images.
+- **next/link** — Already available. Used for internal navigation.
+- **@tailwindcss/typography** — Already installed and configured in `globals.css`. Used for rendering `rules_html` and `faqs_html` rich text content with proper typographic styling.
+- **lucide-react** — Already installed. Used for section icons, phase type icons, share button icons, and navigation icons.
+
+All UI primitives come from the existing shadcn/ui components (`badge`, `button`, `card`, `separator`). No new shadcn components need to be generated for Part 4.
+
+---
+
+### 4.2 New Design Tokens (P4.R12)
+
+Add the following tokens to the `.theme-competitive` block in `globals.css`. These support prize rank styling, hero gradients, and timeline visual states without hardcoding values in components.
+
+```css
+.theme-competitive {
+  /* ...existing tokens... */
+
+  /* Prize rank accents — gold / silver / bronze */
+  --prize-gold: oklch(0.82 0.17 85);
+  --prize-gold-foreground: oklch(0.18 0.02 85);
+  --prize-silver: oklch(0.78 0.03 260);
+  --prize-silver-foreground: oklch(0.18 0.02 260);
+  --prize-bronze: oklch(0.68 0.12 55);
+  --prize-bronze-foreground: oklch(0.18 0.02 55);
+
+  /* Hero gradient fallback (when no cover image) */
+  --hero-gradient-from: oklch(0.18 0.04 260);
+  --hero-gradient-via: oklch(0.15 0.06 280);
+  --hero-gradient-to: oklch(0.12 0.04 310);
+
+  /* Timeline phase states */
+  --timeline-active: oklch(0.78 0.18 195);       /* cyan — same as primary */
+  --timeline-completed: oklch(0.65 0.25 310);    /* magenta — same as accent */
+  --timeline-upcoming: oklch(0.4 0.02 260);      /* muted dark */
+  --timeline-connector: oklch(1 0 0 / 15%);      /* subtle white line */
+
+  /* Section divider */
+  --section-divider: oklch(1 0 0 / 8%);
+}
+```
+
+Also register the new tokens in the `@theme inline` block so they are accessible as Tailwind utilities:
+
+```css
+@theme inline {
+  /* ...existing mappings... */
+
+  /* Prize rank colors */
+  --color-prize-gold: var(--prize-gold);
+  --color-prize-gold-foreground: var(--prize-gold-foreground);
+  --color-prize-silver: var(--prize-silver);
+  --color-prize-silver-foreground: var(--prize-silver-foreground);
+  --color-prize-bronze: var(--prize-bronze);
+  --color-prize-bronze-foreground: var(--prize-bronze-foreground);
+
+  /* Hero gradient */
+  --color-hero-gradient-from: var(--hero-gradient-from);
+  --color-hero-gradient-via: var(--hero-gradient-via);
+  --color-hero-gradient-to: var(--hero-gradient-to);
+
+  /* Timeline */
+  --color-timeline-active: var(--timeline-active);
+  --color-timeline-completed: var(--timeline-completed);
+  --color-timeline-upcoming: var(--timeline-upcoming);
+  --color-timeline-connector: var(--timeline-connector);
+
+  /* Section divider */
+  --color-section-divider: var(--section-divider);
+}
+```
+
+**Why these tokens:**
+- **Prize rank colors:** The PRD specifies "gold/silver/bronze styling" for prize ranks. Hardcoding `#FFD700` in a component violates the design-token-driven principle (P4.R12). These tokens let the competitive theme control prize aesthetics.
+- **Hero gradient:** When no cover image is uploaded, the hero uses a gradient fallback. Three gradient stops provide a deep, immersive feel matching the competitive aesthetic.
+- **Timeline phase states:** The timeline section highlights the active phase and dims upcoming/completed. Token-driven colors ensure consistency with the primary/accent palette.
+- **Section divider:** A subtle separator between landing page sections, lighter than `--border` for visual breathing room.
+
+---
+
+### 4.3 Public Route Group Layout (P4.R1)
+
+**New file: `src/app/(public)/layout.tsx`**
+
+This layout wraps all public-facing pages (hackathon landing pages, and future public routes). It applies the competitive theme class and provides a minimal shell with no auth wrapper, no sidebar, and no dashboard chrome.
+
+```typescript
+import type { Metadata } from 'next';
+
+export const metadata: Metadata = {
+  // Default metadata for public pages — overridden by individual pages via generateMetadata
+  title: {
+    template: '%s | HackForge',
+    default: 'HackForge — Enterprise Hackathon Platform',
+  },
+};
+
+export default function PublicLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  return (
+    <div className="theme-competitive min-h-screen bg-background text-foreground">
+      {children}
+    </div>
+  );
+}
+```
+
+**Design decisions:**
+- `theme-competitive` class applied at the layout level — all children inherit the dark/neon token overrides automatically. Individual components use standard Tailwind classes (`bg-card`, `text-primary`, etc.) and the competitive values resolve via CSS custom properties.
+- `min-h-screen` ensures the dark background covers the full viewport even for short-content pages.
+- No `SessionProvider` — public pages don't need auth context. The "Register Now" button (Phase 3) will handle auth separately.
+- The layout uses `metadata.title.template` so individual pages can set `title` and get the ` | HackForge` suffix automatically.
+
+---
+
+### 4.4 Route Structure (P4.R1)
+
+```
+src/app/(public)/
+├── layout.tsx                          # Competitive theme wrapper
+└── hackathons/
+    └── [slug]/
+        ├── page.tsx                    # Server component: data fetch + composition
+        ├── not-found.tsx               # Styled 404 page (P4.R14)
+        └── _components/
+            ├── landing-hero.tsx        # Hero section (P4.R2)
+            ├── landing-about.tsx       # About section (P4.R3)
+            ├── landing-tracks.tsx      # Tracks section (P4.R4)
+            ├── landing-timeline.tsx    # Timeline section (P4.R5)
+            ├── landing-prizes.tsx      # Prizes section (P4.R6)
+            ├── landing-rules.tsx       # Rules section (P4.R7)
+            ├── landing-faqs.tsx        # FAQs accordion (P4.R8) — client component
+            ├── landing-nav.tsx         # Sticky section nav (P4.R9) — client component
+            ├── landing-footer.tsx      # Footer (P4.R13)
+            └── share-buttons.tsx       # Social sharing (P4.R15) — client component
+```
+
+**Component boundary decisions:**
+- Most components are **Server Components** (no `'use client'`). They receive data as props and render static HTML. This maximizes SSR performance and SEO indexability.
+- Three components require `'use client'`: `landing-faqs.tsx` (accordion toggle state), `landing-nav.tsx` (scroll spy + intersection observer), and `share-buttons.tsx` (clipboard API + click handlers).
+- Co-located under `_components/` per coding conventions — these are route-specific, never imported elsewhere.
+
+---
+
+### 4.5 Page Server Component (P4.R1, P4.R10)
+
+**New file: `src/app/(public)/hackathons/[slug]/page.tsx`**
+
+This is the main server component that fetches data and composes all landing page sections.
+
+```typescript
+import { notFound } from 'next/navigation';
+import type { Metadata } from 'next';
+
+import { getHackathonBySlug } from '@/lib/services/hackathon-service';
+import { getStorageProvider } from '@/lib/storage';
+
+import { LandingHero } from './_components/landing-hero';
+import { LandingAbout } from './_components/landing-about';
+import { LandingTracks } from './_components/landing-tracks';
+import { LandingTimeline } from './_components/landing-timeline';
+import { LandingPrizes } from './_components/landing-prizes';
+import { LandingRules } from './_components/landing-rules';
+import { LandingFaqs } from './_components/landing-faqs';
+import { LandingNav } from './_components/landing-nav';
+import { LandingFooter } from './_components/landing-footer';
+
+// Statuses that are publicly viewable
+const PUBLIC_STATUSES = ['published', 'active', 'judging', 'completed'] as const;
+
+interface PageProps {
+  params: Promise<{ slug: string }>;
+}
+
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  const { slug } = await params;
+  const data = await getHackathonBySlug(slug);
+
+  if (!data || !PUBLIC_STATUSES.includes(data.hackathon.status as typeof PUBLIC_STATUSES[number])) {
+    return { title: 'Hackathon Not Found' };
+  }
+
+  const { hackathon } = data;
+  const description = hackathon.description
+    ? hackathon.description.slice(0, 160)
+    : `Join ${hackathon.title} on HackForge — the enterprise hackathon platform.`;
+
+  // Resolve cover image URL for OG tags
+  let ogImageUrl: string | undefined;
+  if (hackathon.coverImageKey) {
+    try {
+      const storage = getStorageProvider();
+      ogImageUrl = await storage.getSignedUrl(hackathon.coverImageKey, 60 * 60 * 24); // 24h expiry for OG crawlers
+    } catch {
+      // Fall back to no image — OG crawlers will use the default
+    }
+  }
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://hackforge.com';
+  const pageUrl = `${appUrl}/hackathons/${slug}`;
+
+  return {
+    title: hackathon.title,
+    description,
+    openGraph: {
+      title: hackathon.title,
+      description,
+      url: pageUrl,
+      siteName: 'HackForge',
+      type: 'website',
+      ...(ogImageUrl && {
+        images: [
+          {
+            url: ogImageUrl,
+            width: 1200,
+            height: 675, // 16:9
+            alt: hackathon.title,
+          },
+        ],
+      }),
+    },
+    twitter: {
+      card: ogImageUrl ? 'summary_large_image' : 'summary',
+      title: hackathon.title,
+      description,
+      ...(ogImageUrl && { images: [ogImageUrl] }),
+    },
+  };
+}
+
+export default async function HackathonLandingPage({ params }: PageProps) {
+  const { slug } = await params;
+  const data = await getHackathonBySlug(slug);
+
+  // 404 for missing, draft, or archived hackathons
+  if (!data || !PUBLIC_STATUSES.includes(data.hackathon.status as typeof PUBLIC_STATUSES[number])) {
+    notFound();
+  }
+
+  const { hackathon, phases, tracks, prizes } = data;
+
+  // Resolve cover image URL for display
+  let coverImageUrl: string | undefined;
+  if (hackathon.coverImageKey) {
+    try {
+      const storage = getStorageProvider();
+      coverImageUrl = await storage.getSignedUrl(hackathon.coverImageKey, 60 * 60); // 1h expiry
+    } catch {
+      // No cover image — hero will use gradient fallback
+    }
+  }
+
+  // Resolve prize image URLs
+  const prizesWithImages = await Promise.all(
+    prizes.map(async (prize) => {
+      if (!prize.imageKey) return { ...prize, imageUrl: undefined };
+      try {
+        const storage = getStorageProvider();
+        const imageUrl = await storage.getSignedUrl(prize.imageKey, 60 * 60);
+        return { ...prize, imageUrl };
+      } catch {
+        return { ...prize, imageUrl: undefined };
+      }
+    })
+  );
+
+  // Determine which sections exist (for sticky nav)
+  const sections: Array<{ id: string; label: string }> = [];
+  if (hackathon.description) sections.push({ id: 'about', label: 'About' });
+  if (tracks.length > 0) sections.push({ id: 'tracks', label: 'Tracks' });
+  sections.push({ id: 'timeline', label: 'Timeline' }); // Always present — phases always exist
+  if (prizes.length > 0) sections.push({ id: 'prizes', label: 'Prizes' });
+  if (hackathon.rulesHtml) sections.push({ id: 'rules', label: 'Rules' });
+  if (hackathon.faqsHtml) sections.push({ id: 'faqs', label: 'FAQs' });
+
+  // Find registration phase dates for the hero
+  const sortedPhases = [...phases].sort((a, b) => a.order - b.order);
+  const registrationPhase = sortedPhases.find((p) => p.type === 'registration');
+
+  // Build page URL for social sharing
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://hackforge.com';
+  const pageUrl = `${appUrl}/hackathons/${slug}`;
+
+  return (
+    <>
+      <LandingNav sections={sections} />
+
+      <main>
+        <LandingHero
+          title={hackathon.title}
+          orgName={hackathon.orgId} // Note: resolved to org name — see 4.6
+          status={hackathon.status}
+          coverImageUrl={coverImageUrl}
+          registrationStart={registrationPhase?.startDate}
+          registrationEnd={registrationPhase?.endDate}
+          pageUrl={pageUrl}
+        />
+
+        {hackathon.description && (
+          <LandingAbout description={hackathon.description} />
+        )}
+
+        {tracks.length > 0 && (
+          <LandingTracks tracks={tracks} />
+        )}
+
+        <LandingTimeline phases={sortedPhases} />
+
+        {prizesWithImages.length > 0 && (
+          <LandingPrizes prizes={prizesWithImages} />
+        )}
+
+        {hackathon.rulesHtml && (
+          <LandingRules html={hackathon.rulesHtml} />
+        )}
+
+        {hackathon.faqsHtml && (
+          <LandingFaqs html={hackathon.faqsHtml} />
+        )}
+      </main>
+
+      <LandingFooter />
+    </>
+  );
+}
+```
+
+**Design decisions:**
+- **`getHackathonBySlug()` drives check-on-access.** This function already calls `applyStatusResolution()` internally (Part 3 implementation), so the landing page always gets the correct up-to-date status without any additional logic. If a visitor loads a hackathon whose judging phase ended yesterday, the status auto-transitions to `completed` before the page renders.
+- **`notFound()` for non-public statuses.** Draft and archived hackathons trigger Next.js's not-found boundary, which renders our custom `not-found.tsx`.
+- **Image URLs resolved server-side.** Signed URLs are generated in the server component and passed as props. No storage SDK on the client. OG image uses a 24-hour expiry because social platform crawlers may cache the URL; display images use 1 hour.
+- **Sections array computed server-side.** The sticky nav only shows links for sections that actually have content. This avoids dangling nav links.
+
+**Org name resolution:** The `hackathons` table stores `org_id`, not the org name. The page needs the org name for the hero "Organized by" line. Two approaches:
+
+*Option A (simple, chosen):* Extend `getHackathonBySlug()` to join the `organizations` table and return `orgName` alongside the hackathon. This is a minor modification to an existing service method.
+
+*Option B (separate query):* Fetch the org name in the page component with a dedicated `getOrgById()` call. This adds a second query for no architectural benefit.
+
+**We go with Option A.** Add to `hackathon-service.ts`:
+
+```typescript
+// In getHackathonBySlug, after fetching hackathon:
+const org = await db.query.organizations.findFirst({
+  where: eq(organizations.id, hackathon.orgId),
+  columns: { name: true },
+});
+
+// Return org name in the result
+return {
+  hackathon: { ...hackathon, status: hackathonStatus },
+  orgName: org?.name ?? 'Unknown Organization',
+  ...relations,
+};
+```
+
+Update the `HackathonWithRelations` type:
+
+```typescript
+export interface HackathonWithRelations {
+  hackathon: Hackathon;
+  orgName: string;
+  phases: Phase[];
+  tracks: Track[];
+  prizes: Prize[];
+}
+```
+
+This change also benefits the dashboard (which currently fetches org name separately) but is non-breaking — the added field is purely additive.
+
+---
+
+### 4.6 Hackathon Service Extension
+
+**Modified file: `src/lib/services/hackathon-service.ts`**
+
+Add `orgName` to the return type and fetch it in `getHackathonBySlug()`:
+
+```typescript
+import { organizations } from '@/db/schema';
+
+// Update HackathonWithRelations
+export interface HackathonWithRelations {
+  hackathon: Hackathon;
+  orgName: string;   // ← NEW
+  phases: Phase[];
+  tracks: Track[];
+  prizes: Prize[];
+}
+
+// In getHackathonBySlug():
+export async function getHackathonBySlug(
+  slug: string
+): Promise<HackathonWithRelations | null> {
+  console.log('[hackathon-service] getHackathonBySlug:', { slug });
+
+  const hackathon = await db.query.hackathons.findFirst({
+    where: and(
+      eq(hackathons.slug, slug),
+      isNull(hackathons.deletedAt),
+    ),
+  });
+
+  if (!hackathon) return null;
+
+  // Fetch org name for public display
+  const org = await db.query.organizations.findFirst({
+    where: eq(organizations.id, hackathon.orgId),
+    columns: { name: true },
+  });
+
+  let relations = await fetchHackathonRelations(hackathon.id);
+
+  const { hackathonStatus, phasesChanged } = await applyStatusResolution(
+    hackathon,
+    relations.phases,
+  );
+
+  if (phasesChanged) {
+    relations = await fetchHackathonRelations(hackathon.id);
+  }
+
+  return {
+    hackathon: { ...hackathon, status: hackathonStatus },
+    orgName: org?.name ?? 'Unknown Organization',
+    ...relations,
+  };
+}
+```
+
+Similarly update `getHackathonById()` and `getHackathonsByOrgId()` to include `orgName` for type consistency. For `getHackathonsByOrgId()`, the org name is already known by the caller (the dashboard knows the current org), so pass it through or resolve it once at the top of the function.
+
+---
+
+### 4.7 Hero Section (P4.R2, P4.R15)
+
+**New file: `src/app/(public)/hackathons/[slug]/_components/landing-hero.tsx`**
+
+Server Component. Renders the full-width hero with cover image or gradient fallback, title, org name, status badge, registration dates, CTA button, and social share buttons.
+
+```typescript
+import Image from 'next/image';
+
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+
+import { ShareButtons } from './share-buttons';
+
+interface LandingHeroProps {
+  title: string;
+  orgName: string;
+  status: string;
+  coverImageUrl?: string;
+  registrationStart?: Date | string | null;
+  registrationEnd?: Date | string | null;
+  pageUrl: string;
+}
+
+export function LandingHero({
+  title,
+  orgName,
+  status,
+  coverImageUrl,
+  registrationStart,
+  registrationEnd,
+  pageUrl,
+}: LandingHeroProps) {
+  const isCompleted = status === 'completed';
+
+  return (
+    <section className="relative w-full overflow-hidden">
+      {/* Background: cover image or gradient fallback */}
+      {coverImageUrl ? (
+        <div className="absolute inset-0">
+          <Image
+            src={coverImageUrl}
+            alt=""
+            fill
+            className="object-cover"
+            priority
+            sizes="100vw"
+          />
+          {/* Dark overlay for text readability */}
+          <div className="absolute inset-0 bg-gradient-to-b from-background/70 via-background/50 to-background" />
+        </div>
+      ) : (
+        <div className="absolute inset-0 bg-gradient-to-br from-hero-gradient-from via-hero-gradient-via to-hero-gradient-to" />
+      )}
+
+      {/* Content */}
+      <div className="relative mx-auto max-w-5xl px-4 pb-16 pt-32 sm:px-6 sm:pb-20 sm:pt-40 lg:px-8 lg:pb-24 lg:pt-48">
+        <Badge
+          variant="outline"
+          className="mb-4 border-primary/40 text-primary"
+        >
+          {formatStatus(status)}
+        </Badge>
+
+        <h1 className="font-heading text-4xl font-bold tracking-tight sm:text-5xl lg:text-6xl">
+          {title}
+        </h1>
+
+        <p className="mt-3 text-lg text-muted-foreground">
+          Organized by <span className="text-foreground font-medium">{orgName}</span>
+        </p>
+
+        {/* Registration dates */}
+        {registrationStart && registrationEnd && (
+          <p className="mt-4 text-sm text-muted-foreground">
+            Registration: {formatDate(registrationStart)} — {formatDate(registrationEnd)}
+          </p>
+        )}
+
+        {/* CTA + Share row */}
+        <div className="mt-8 flex flex-wrap items-center gap-4">
+          <Button
+            size="lg"
+            disabled={status !== 'published' && status !== 'active'}
+            className="font-heading text-base font-semibold"
+          >
+            {isCompleted ? 'View Results' : 'Register Now'}
+          </Button>
+
+          <ShareButtons title={title} pageUrl={pageUrl} />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// Helper: format status for display badge
+function formatStatus(status: string): string {
+  const labels: Record<string, string> = {
+    published: 'Registration Open',
+    active: 'In Progress',
+    judging: 'Judging Underway',
+    completed: 'Completed',
+  };
+  return labels[status] ?? status;
+}
+
+// Helper: format date for display
+function formatDate(date: Date | string): string {
+  const d = typeof date === 'string' ? new Date(date) : date;
+  return d.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+```
+
+**Design decisions:**
+- **`priority` on cover image.** This is the LCP (Largest Contentful Paint) element — `priority` tells Next.js to preload it.
+- **Gradient overlay on cover image.** A `from-background/70 ... to-background` overlay ensures text readability regardless of image brightness.
+- **CTA button disabled in Phase 2.** The "Register Now" button is rendered but non-functional (disabled when status isn't something a future registration flow handles). Phase 3 will wire it to the registration route.
+- **`font-heading` class.** In the competitive theme, `--font-heading` resolves to Space Grotesk. No hardcoded font family.
+- **Share buttons are a separate client component** imported here but rendered within the hero's server component.
+
+---
+
+### 4.8 About Section (P4.R3)
+
+**New file: `src/app/(public)/hackathons/[slug]/_components/landing-about.tsx`**
+
+Server Component. Renders the hackathon description with clean typography.
+
+```typescript
+interface LandingAboutProps {
+  description: string;
+}
+
+export function LandingAbout({ description }: LandingAboutProps) {
+  return (
+    <section id="about" className="border-t border-section-divider py-16 sm:py-20 lg:py-24">
+      <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8">
+        <h2 className="font-heading text-2xl font-bold tracking-tight sm:text-3xl">
+          About
+        </h2>
+        <p className="mt-6 text-lg leading-relaxed text-muted-foreground whitespace-pre-line">
+          {description}
+        </p>
+      </div>
+    </section>
+  );
+}
+```
+
+**Design decisions:**
+- **`max-w-3xl`** constrains the reading width for comfortable line lengths (~65-75 characters).
+- **`whitespace-pre-line`** preserves line breaks entered by the admin in the wizard's textarea.
+- **`border-section-divider`** uses the new token for a subtle visual separation between sections.
+
+---
+
+### 4.9 Tracks Section (P4.R4)
+
+**New file: `src/app/(public)/hackathons/[slug]/_components/landing-tracks.tsx`**
+
+Server Component. Renders tracks as cards, or inline if only one track exists.
+
+```typescript
+import { ExternalLink } from 'lucide-react';
+
+import type { Track } from '@/db/schema';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+
+interface LandingTracksProps {
+  tracks: Track[];
+}
+
+export function LandingTracks({ tracks }: LandingTracksProps) {
+  const isSingle = tracks.length === 1;
+
+  return (
+    <section id="tracks" className="border-t border-section-divider py-16 sm:py-20 lg:py-24">
+      <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
+        <h2 className="font-heading text-2xl font-bold tracking-tight sm:text-3xl">
+          Tracks
+        </h2>
+
+        {isSingle ? (
+          // Inline display for single track
+          <div className="mt-6">
+            <h3 className="font-heading text-xl font-semibold">{tracks[0].name}</h3>
+            {tracks[0].description && (
+              <p className="mt-2 text-muted-foreground">{tracks[0].description}</p>
+            )}
+            {tracks[0].resourcesUrl && (
+              <a
+                href={tracks[0].resourcesUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-3 inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
+              >
+                Resources <ExternalLink className="h-3.5 w-3.5" />
+              </a>
+            )}
+          </div>
+        ) : (
+          // Card grid for multiple tracks
+          <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {tracks
+              .sort((a, b) => a.order - b.order)
+              .map((track) => (
+                <Card key={track.id} className="border-border/50">
+                  <CardHeader>
+                    <CardTitle className="font-heading text-lg">{track.name}</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {track.description && (
+                      <p className="text-sm text-muted-foreground">{track.description}</p>
+                    )}
+                    {track.resourcesUrl && (
+                      <a
+                        href={track.resourcesUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-3 inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
+                      >
+                        Resources <ExternalLink className="h-3.5 w-3.5" />
+                      </a>
+                    )}
+                  </CardContent>
+                </Card>
+              ))}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+```
+
+**Design decisions:**
+- **Single vs. multiple tracks** handled with a conditional. Per PRD: "If only one track exists, display it as an inline section rather than cards."
+- **Cards use `border-border/50`** for a subtle boundary that doesn't compete with the neon accents.
+- **Tracks sorted by `order`** to match the admin's intended sequence.
+- **External resource links** use `target="_blank"` with `rel="noopener noreferrer"` for security.
+
+---
+
+### 4.10 Timeline Section (P4.R5)
+
+**New file: `src/app/(public)/hackathons/[slug]/_components/landing-timeline.tsx`**
+
+Server Component. Renders phases as a visual timeline — vertical on mobile, horizontal on desktop. The active phase is highlighted using the `timeline-active` token.
+
+```typescript
+import {
+  UserPlus,
+  Upload,
+  Search,
+  Scale,
+  Trophy,
+} from 'lucide-react';
+
+import type { Phase } from '@/db/schema';
+
+interface LandingTimelineProps {
+  phases: Phase[];
+}
+
+// Map phase type to a Lucide icon
+const PHASE_ICONS: Record<string, React.ElementType> = {
+  registration: UserPlus,
+  submission: Upload,
+  screening: Search,
+  judging: Scale,
+  results: Trophy,
+};
+
+export function LandingTimeline({ phases }: LandingTimelineProps) {
+  return (
+    <section id="timeline" className="border-t border-section-divider py-16 sm:py-20 lg:py-24">
+      <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
+        <h2 className="font-heading text-2xl font-bold tracking-tight sm:text-3xl">
+          Timeline
+        </h2>
+
+        {/* Desktop: horizontal timeline */}
+        <div className="mt-10 hidden lg:block">
+          <div className="relative flex items-start justify-between">
+            {/* Connector line */}
+            <div className="absolute left-0 right-0 top-5 h-0.5 bg-timeline-connector" />
+
+            {phases.map((phase, index) => (
+              <TimelineNode key={phase.id} phase={phase} isLast={index === phases.length - 1} />
+            ))}
+          </div>
+        </div>
+
+        {/* Mobile + Tablet: vertical timeline */}
+        <div className="mt-8 lg:hidden">
+          <div className="relative ml-4 border-l-2 border-timeline-connector pl-8">
+            {phases.map((phase) => (
+              <TimelineNodeVertical key={phase.id} phase={phase} />
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// --- Horizontal node (desktop) ---
+
+function TimelineNode({ phase }: { phase: Phase; isLast: boolean }) {
+  const Icon = PHASE_ICONS[phase.type] ?? Trophy;
+  const statusColor = getStatusColorClass(phase.status);
+
+  return (
+    <div className="relative flex flex-col items-center text-center" style={{ flex: '1 1 0' }}>
+      {/* Dot */}
+      <div
+        className={cn(
+          'relative z-10 flex h-10 w-10 items-center justify-center rounded-full border-2',
+          statusColor.dot,
+        )}
+      >
+        <Icon className={cn('h-4 w-4', statusColor.icon)} />
+      </div>
+
+      {/* Label */}
+      <h3 className={cn('mt-3 font-heading text-sm font-semibold', statusColor.text)}>
+        {phase.name}
+      </h3>
+
+      {/* Dates */}
+      {phase.startDate && phase.endDate && (
+        <p className="mt-1 text-xs text-muted-foreground">
+          {formatShortDate(phase.startDate)} — {formatShortDate(phase.endDate)}
+        </p>
+      )}
+
+      {/* Status label */}
+      <span className={cn('mt-1.5 text-xs font-medium', statusColor.text)}>
+        {formatPhaseStatus(phase.status)}
+      </span>
+    </div>
+  );
+}
+
+// --- Vertical node (mobile) ---
+
+function TimelineNodeVertical({ phase }: { phase: Phase }) {
+  const Icon = PHASE_ICONS[phase.type] ?? Trophy;
+  const statusColor = getStatusColorClass(phase.status);
+
+  return (
+    <div className="relative pb-10 last:pb-0">
+      {/* Dot on the line */}
+      <div
+        className={cn(
+          'absolute -left-[calc(1rem+5px)] flex h-10 w-10 items-center justify-center rounded-full border-2',
+          statusColor.dot,
+        )}
+      >
+        <Icon className={cn('h-4 w-4', statusColor.icon)} />
+      </div>
+
+      <div>
+        <h3 className={cn('font-heading text-base font-semibold', statusColor.text)}>
+          {phase.name}
+        </h3>
+        {phase.startDate && phase.endDate && (
+          <p className="mt-1 text-sm text-muted-foreground">
+            {formatShortDate(phase.startDate)} — {formatShortDate(phase.endDate)}
+          </p>
+        )}
+        <span className={cn('mt-1 inline-block text-xs font-medium', statusColor.text)}>
+          {formatPhaseStatus(phase.status)}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// --- Helpers ---
+
+import { cn } from '@/lib/utils';
+
+function getStatusColorClass(status: string): {
+  dot: string;
+  icon: string;
+  text: string;
+} {
+  switch (status) {
+    case 'active':
+      return {
+        dot: 'border-timeline-active bg-timeline-active/20',
+        icon: 'text-timeline-active',
+        text: 'text-timeline-active',
+      };
+    case 'completed':
+      return {
+        dot: 'border-timeline-completed bg-timeline-completed/20',
+        icon: 'text-timeline-completed',
+        text: 'text-timeline-completed',
+      };
+    default: // upcoming
+      return {
+        dot: 'border-timeline-upcoming bg-timeline-upcoming/20',
+        icon: 'text-muted-foreground',
+        text: 'text-muted-foreground',
+      };
+  }
+}
+
+function formatShortDate(date: Date | string): string {
+  const d = typeof date === 'string' ? new Date(date) : date;
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+function formatPhaseStatus(status: string): string {
+  const labels: Record<string, string> = {
+    upcoming: 'Upcoming',
+    active: 'In Progress',
+    completed: 'Completed',
+  };
+  return labels[status] ?? status;
+}
+```
+
+**Design decisions:**
+- **Dual layout:** Horizontal on desktop (`lg:` breakpoint and above), vertical on mobile/tablet. The PRD explicitly requires this.
+- **Phase type icons** use a mapped record — extensible if new phase types are added.
+- **Token-driven colors:** `timeline-active`, `timeline-completed`, `timeline-upcoming`, and `timeline-connector` are all from the design tokens. No hardcoded colors.
+- **`flex: 1 1 0`** on horizontal nodes distributes them evenly across the connector line, regardless of phase count.
+
+---
+
+### 4.11 Prizes Section (P4.R6)
+
+**New file: `src/app/(public)/hackathons/[slug]/_components/landing-prizes.tsx`**
+
+Server Component. Renders prizes ordered by rank with gold/silver/bronze styling for the top three.
+
+```typescript
+import Image from 'next/image';
+import { Trophy } from 'lucide-react';
+
+import type { Prize } from '@/db/schema';
+import { cn } from '@/lib/utils';
+import { Card, CardContent } from '@/components/ui/card';
+
+interface PrizeWithImage extends Prize {
+  imageUrl?: string;
+}
+
+interface LandingPrizesProps {
+  prizes: PrizeWithImage[];
+}
+
+// Rank → token-based styling for top 3
+const RANK_STYLES: Record<number, { bg: string; text: string; label: string }> = {
+  1: { bg: 'bg-prize-gold/15', text: 'text-prize-gold', label: '1st Place' },
+  2: { bg: 'bg-prize-silver/15', text: 'text-prize-silver', label: '2nd Place' },
+  3: { bg: 'bg-prize-bronze/15', text: 'text-prize-bronze', label: '3rd Place' },
+};
+
+export function LandingPrizes({ prizes }: LandingPrizesProps) {
+  const sorted = [...prizes].sort((a, b) => a.rank - b.rank);
+
+  return (
+    <section id="prizes" className="border-t border-section-divider py-16 sm:py-20 lg:py-24">
+      <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
+        <h2 className="font-heading text-2xl font-bold tracking-tight sm:text-3xl">
+          Prizes
+        </h2>
+
+        <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {sorted.map((prize) => {
+            const rankStyle = RANK_STYLES[prize.rank];
+
+            return (
+              <Card key={prize.id} className={cn('overflow-hidden border-border/50', rankStyle?.bg)}>
+                {/* Prize image */}
+                {prize.imageUrl && (
+                  <div className="relative aspect-video w-full">
+                    <Image
+                      src={prize.imageUrl}
+                      alt={prize.name}
+                      fill
+                      className="object-cover"
+                      sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+                    />
+                  </div>
+                )}
+
+                <CardContent className="pt-4">
+                  {/* Rank badge */}
+                  <div className="flex items-center gap-2">
+                    <Trophy className={cn('h-4 w-4', rankStyle?.text ?? 'text-muted-foreground')} />
+                    <span className={cn('text-sm font-semibold', rankStyle?.text ?? 'text-muted-foreground')}>
+                      {rankStyle?.label ?? `Rank #${prize.rank}`}
+                    </span>
+                  </div>
+
+                  {/* Name + description */}
+                  <h3 className="mt-2 font-heading text-lg font-semibold">{prize.name}</h3>
+                  {prize.description && (
+                    <p className="mt-1 text-sm text-muted-foreground">{prize.description}</p>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      </div>
+    </section>
+  );
+}
+```
+
+**Design decisions:**
+- **Top-3 rank styling** uses the new `prize-gold/silver/bronze` tokens. Ranks beyond 3 fall back to muted text — no hardcoded colors for any rank.
+- **`bg-prize-gold/15`** applies the gold color at 15% opacity as a card background tint, creating a subtle glow effect without overwhelming the dark theme.
+- **Prize images are optional.** The card layout adapts — no image means the card starts directly with the rank badge.
+- **Sorted by `rank`** to ensure visual hierarchy matches the admin's intended order.
+
+---
+
+### 4.12 Rules Section (P4.R7)
+
+**New file: `src/app/(public)/hackathons/[slug]/_components/landing-rules.tsx`**
+
+Server Component. Renders the `rules_html` Tiptap output using `@tailwindcss/typography` for styled HTML.
+
+```typescript
+interface LandingRulesProps {
+  html: string;
+}
+
+export function LandingRules({ html }: LandingRulesProps) {
+  return (
+    <section id="rules" className="border-t border-section-divider py-16 sm:py-20 lg:py-24">
+      <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8">
+        <h2 className="font-heading text-2xl font-bold tracking-tight sm:text-3xl">
+          Rules
+        </h2>
+        <div
+          className="prose prose-invert mt-6 max-w-none prose-headings:font-heading prose-headings:tracking-tight prose-a:text-primary prose-a:no-underline hover:prose-a:underline"
+          dangerouslySetInnerHTML={{ __html: html }}
+        />
+      </div>
+    </section>
+  );
+}
+```
+
+**Design decisions:**
+- **`prose prose-invert`** applies Tailwind Typography styles tuned for dark backgrounds. `prose-invert` flips colors for dark themes.
+- **`prose-headings:font-heading`** ensures headings inside the rich text use Space Grotesk (via the competitive theme token).
+- **`prose-a:text-primary`** styles links in the electric cyan accent.
+- **`dangerouslySetInnerHTML`** is used because the content is Tiptap's sanitized HTML output. Tiptap produces safe HTML by default (no script injection). The content comes from trusted admin input stored in the database.
+- **`max-w-3xl`** constrains the reading width, matching the About section.
+
+---
+
+### 4.13 FAQs Accordion Section (P4.R8)
+
+**New file: `src/app/(public)/hackathons/[slug]/_components/landing-faqs.tsx`**
+
+**Client Component** (`'use client'`). Parses the `faqs_html` string, splits it by H2 headings into collapsible accordion sections. Each H2 becomes a clickable header; the content below it collapses/expands.
+
+```typescript
+'use client';
+
+import { useState } from 'react';
+import { ChevronDown } from 'lucide-react';
+
+import { cn } from '@/lib/utils';
+
+interface LandingFaqsProps {
+  html: string;
+}
+
+interface FaqSection {
+  question: string;
+  answerHtml: string;
+}
+
+export function LandingFaqs({ html }: LandingFaqsProps) {
+  const sections = parseFaqSections(html);
+  const [openIndex, setOpenIndex] = useState<number | null>(null);
+
+  const toggle = (index: number) => {
+    setOpenIndex((prev) => (prev === index ? null : index));
+  };
+
+  return (
+    <section id="faqs" className="border-t border-section-divider py-16 sm:py-20 lg:py-24">
+      <div className="mx-auto max-w-3xl px-4 sm:px-6 lg:px-8">
+        <h2 className="font-heading text-2xl font-bold tracking-tight sm:text-3xl">
+          FAQs
+        </h2>
+
+        <div className="mt-8 divide-y divide-border">
+          {sections.map((faq, index) => (
+            <div key={index}>
+              <button
+                type="button"
+                onClick={() => toggle(index)}
+                className="flex w-full items-center justify-between py-4 text-left font-heading text-base font-semibold transition-colors hover:text-primary"
+              >
+                {faq.question}
+                <ChevronDown
+                  className={cn(
+                    'h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200',
+                    openIndex === index && 'rotate-180',
+                  )}
+                />
+              </button>
+
+              <div
+                className={cn(
+                  'grid transition-all duration-200',
+                  openIndex === index
+                    ? 'grid-rows-[1fr] pb-4 opacity-100'
+                    : 'grid-rows-[0fr] opacity-0',
+                )}
+              >
+                <div className="overflow-hidden">
+                  <div
+                    className="prose prose-invert prose-sm max-w-none prose-a:text-primary"
+                    dangerouslySetInnerHTML={{ __html: faq.answerHtml }}
+                  />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/**
+ * Splits a single HTML string into FAQ sections by H2 tags.
+ * Each H2's text content becomes the question; everything between
+ * that H2 and the next H2 (or end of string) becomes the answer HTML.
+ */
+function parseFaqSections(html: string): FaqSection[] {
+  const sections: FaqSection[] = [];
+
+  // Split on <h2> tags, keeping the tag in the result
+  const parts = html.split(/(?=<h2[^>]*>)/i);
+
+  for (const part of parts) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+
+    // Extract H2 text content
+    const h2Match = trimmed.match(/<h2[^>]*>(.*?)<\/h2>/i);
+    if (!h2Match) continue;
+
+    const question = h2Match[1].replace(/<[^>]*>/g, '').trim(); // Strip inner HTML tags
+    const answerHtml = trimmed.replace(/<h2[^>]*>.*?<\/h2>/i, '').trim();
+
+    if (question) {
+      sections.push({ question, answerHtml });
+    }
+  }
+
+  return sections;
+}
+```
+
+**Design decisions:**
+- **H2-based splitting** per PRD: "Each top-level heading (H2) becomes a collapsible section." This matches Tiptap's output where admins structure FAQs with H2 headings.
+- **`grid-rows-[1fr]` / `grid-rows-[0fr]` animation** provides smooth open/close transitions without fixed heights. This is a CSS-only animation pattern that works reliably with dynamic content.
+- **Single accordion** (only one open at a time) keeps the page scannable. `openIndex` is `null` when all are collapsed.
+- **Client component** is required for the toggle state and click handlers.
+
+---
+
+### 4.14 Sticky Navigation (P4.R9)
+
+**New file: `src/app/(public)/hackathons/[slug]/_components/landing-nav.tsx`**
+
+**Client Component** (`'use client'`). Renders a sticky top bar with section links. Uses Intersection Observer to highlight the currently visible section.
+
+```typescript
+'use client';
+
+import { useEffect, useState, useRef } from 'react';
+
+import { cn } from '@/lib/utils';
+
+interface LandingNavProps {
+  sections: Array<{ id: string; label: string }>;
+}
+
+export function LandingNav({ sections }: LandingNavProps) {
+  const [activeSection, setActiveSection] = useState<string>('');
+  const [isSticky, setIsSticky] = useState(false);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+
+  // Track which section is in view
+  useEffect(() => {
+    const observers: IntersectionObserver[] = [];
+
+    for (const section of sections) {
+      const el = document.getElementById(section.id);
+      if (!el) continue;
+
+      const observer = new IntersectionObserver(
+        ([entry]) => {
+          if (entry.isIntersecting) {
+            setActiveSection(section.id);
+          }
+        },
+        { rootMargin: '-20% 0px -70% 0px' },
+      );
+
+      observer.observe(el);
+      observers.push(observer);
+    }
+
+    return () => observers.forEach((o) => o.disconnect());
+  }, [sections]);
+
+  // Track when the nav becomes sticky (sentinel pattern)
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => setIsSticky(!entry.isIntersecting),
+      { threshold: 0 },
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, []);
+
+  const handleClick = (id: string) => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+
+  if (sections.length === 0) return null;
+
+  return (
+    <>
+      {/* Sentinel element — placed right above where nav would stick */}
+      <div ref={sentinelRef} className="h-0" />
+
+      <nav
+        className={cn(
+          'sticky top-0 z-40 w-full border-b border-transparent transition-colors duration-200',
+          isSticky && 'border-border bg-background/80 backdrop-blur-md',
+        )}
+      >
+        <div className="mx-auto flex max-w-5xl items-center gap-1 overflow-x-auto px-4 py-3 sm:px-6 lg:px-8">
+          {sections.map((section) => (
+            <button
+              key={section.id}
+              type="button"
+              onClick={() => handleClick(section.id)}
+              className={cn(
+                'shrink-0 rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
+                activeSection === section.id
+                  ? 'bg-primary/15 text-primary'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {section.label}
+            </button>
+          ))}
+        </div>
+      </nav>
+    </>
+  );
+}
+```
+
+**Design decisions:**
+- **Intersection Observer** for scroll spy — no scroll event listeners, no throttling needed. Each section element is observed with a `rootMargin` of `-20% 0px -70% 0px` which triggers when the section is roughly in the top 30% of the viewport.
+- **Sentinel pattern** for sticky detection — an invisible `div` is placed before the nav. When it scrolls out of view, the nav is "sticky" and gets a frosted background. This avoids `scroll` event listeners.
+- **`backdrop-blur-md` + `bg-background/80`** creates a glassmorphism effect when sticky, consistent with the competitive theme's modern aesthetic.
+- **`overflow-x-auto`** allows horizontal scrolling on mobile when sections overflow the viewport width.
+- **Only renders nav links for sections that exist** — the `sections` array is computed server-side in the page component.
+
+---
+
+### 4.15 Social Share Buttons (P4.R15)
+
+**New file: `src/app/(public)/hackathons/[slug]/_components/share-buttons.tsx`**
+
+**Client Component** (`'use client'`). Renders share buttons for Copy Link, X/Twitter, LinkedIn, and WhatsApp. Icons only on mobile, icons + labels on desktop.
+
+```typescript
+'use client';
+
+import { useState } from 'react';
+import { Link2, Check, Twitter, Linkedin, MessageCircle } from 'lucide-react';
+
+import { Button } from '@/components/ui/button';
+
+interface ShareButtonsProps {
+  title: string;
+  pageUrl: string;
+}
+
+export function ShareButtons({ title, pageUrl }: ShareButtonsProps) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(pageUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Fallback for older browsers
+      const textarea = document.createElement('textarea');
+      textarea.value = pageUrl;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  const shareText = `Check out ${title} on HackForge!`;
+  const encodedUrl = encodeURIComponent(pageUrl);
+  const encodedText = encodeURIComponent(shareText);
+
+  const shareLinks = [
+    {
+      label: 'Twitter',
+      icon: Twitter,
+      href: `https://twitter.com/intent/tweet?url=${encodedUrl}&text=${encodedText}`,
+    },
+    {
+      label: 'LinkedIn',
+      icon: Linkedin,
+      href: `https://www.linkedin.com/sharing/share-offsite/?url=${encodedUrl}`,
+    },
+    {
+      label: 'WhatsApp',
+      icon: MessageCircle,
+      href: `https://wa.me/?text=${encodedText}%20${encodedUrl}`,
+    },
+  ];
+
+  return (
+    <div className="flex items-center gap-2">
+      {/* Copy Link */}
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={handleCopy}
+        className="gap-1.5"
+      >
+        {copied ? (
+          <Check className="h-4 w-4 text-chart-3" />
+        ) : (
+          <Link2 className="h-4 w-4" />
+        )}
+        <span className="hidden sm:inline">{copied ? 'Copied!' : 'Copy Link'}</span>
+      </Button>
+
+      {/* Social share links */}
+      {shareLinks.map((link) => (
+        <Button
+          key={link.label}
+          variant="outline"
+          size="sm"
+          asChild
+          className="gap-1.5"
+        >
+          <a href={link.href} target="_blank" rel="noopener noreferrer">
+            <link.icon className="h-4 w-4" />
+            <span className="hidden sm:inline">{link.label}</span>
+          </a>
+        </Button>
+      ))}
+    </div>
+  );
+}
+```
+
+**Design decisions:**
+- **URL-based sharing** — no third-party SDKs, per PRD Decision #10. Each button opens a share URL in a new tab.
+- **Clipboard API with fallback** — `navigator.clipboard.writeText()` is preferred; `document.execCommand('copy')` is the fallback for older browsers or non-HTTPS contexts.
+- **"Copied!" feedback** — The icon swaps from `Link2` to `Check` for 2 seconds, using the `chart-3` green token for positive feedback.
+- **`hidden sm:inline`** on labels — icons only on mobile, icons + text on `sm` and above, per PRD.
+- **`Button asChild`** renders the social links as `<a>` tags for proper semantics while keeping button styling.
+
+---
+
+### 4.16 Footer (P4.R13)
+
+**New file: `src/app/(public)/hackathons/[slug]/_components/landing-footer.tsx`**
+
+Server Component. Minimal footer with HackForge branding.
+
+```typescript
+import Link from 'next/link';
+
+export function LandingFooter() {
+  return (
+    <footer className="border-t border-section-divider py-8">
+      <div className="mx-auto max-w-5xl px-4 text-center text-sm text-muted-foreground sm:px-6 lg:px-8">
+        Powered by{' '}
+        <Link
+          href="/"
+          className="font-medium text-foreground transition-colors hover:text-primary"
+        >
+          HackForge
+        </Link>
+      </div>
+    </footer>
+  );
+}
+```
+
+**Design decisions:**
+- **Minimal** per PRD: "Powered by HackForge" branding + link to homepage. Nothing else.
+- **`Link` from next/link** for the internal homepage navigation.
+- **`text-muted-foreground`** keeps the footer subdued, not competing with page content.
+
+---
+
+### 4.17 Custom 404 Page (P4.R14)
+
+**New file: `src/app/(public)/hackathons/[slug]/not-found.tsx`**
+
+Rendered when `notFound()` is called in the page component (slug doesn't match or hackathon is draft/archived).
+
+```typescript
+import Link from 'next/link';
+import { SearchX } from 'lucide-react';
+
+import { Button } from '@/components/ui/button';
+
+export default function HackathonNotFound() {
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center px-4 text-center">
+      <SearchX className="h-16 w-16 text-muted-foreground" />
+      <h1 className="mt-6 font-heading text-3xl font-bold tracking-tight sm:text-4xl">
+        Hackathon Not Found
+      </h1>
+      <p className="mt-3 text-lg text-muted-foreground">
+        This hackathon doesn't exist or isn't available yet.
+      </p>
+      <Button asChild className="mt-8" size="lg">
+        <Link href="/">Back to HackForge</Link>
+      </Button>
+    </div>
+  );
+}
+```
+
+**Design decisions:**
+- **Inherits the competitive theme** from the `(public)` layout — dark background, neon accent on the CTA button.
+- **Ambiguous messaging** ("doesn't exist or isn't available yet") — doesn't reveal whether the hackathon exists as a draft, which could be information leakage.
+- **`SearchX` icon** is visually distinct and communicates "not found" without a jarring error vibe.
+
+---
+
+### 4.18 Responsive Design Notes (P4.R11)
+
+The landing page is built **mobile-first** with responsive breakpoints:
+
+| Breakpoint | Width | Layout Adaptations |
+|------------|-------|-------------------|
+| Mobile | `< 640px` (default) | Single column, vertical timeline, icons-only share buttons, full-width cards |
+| Tablet (`sm`) | `640px` | 2-column track/prize grid, share button labels appear |
+| Desktop (`lg`) | `1024px` | 3-column grids, horizontal timeline, max-width containers |
+
+Key responsive patterns used across components:
+- **`mx-auto max-w-5xl px-4 sm:px-6 lg:px-8`** — consistent container with responsive horizontal padding.
+- **`text-4xl sm:text-5xl lg:text-6xl`** — fluid heading sizes.
+- **`py-16 sm:py-20 lg:py-24`** — section vertical spacing increases with viewport.
+- **`grid sm:grid-cols-2 lg:grid-cols-3`** — cards reflow from 1 → 2 → 3 columns.
+- **`hidden lg:block` / `lg:hidden`** — timeline layout swap between vertical and horizontal.
+
+No custom breakpoints are needed. Tailwind's default breakpoints align with the PRD's test points (375px ≈ mobile default, 768px ≈ `md`, 1280px ≈ `xl`). The `sm` (640px), `lg` (1024px) breakpoints cover the critical transition points.
+
+---
+
+### 4.19 Implementation Increments
+
+Part 4 is implemented in 4 increments, each independently verifiable.
+
+---
+
+**Increment 4A: Design tokens + public layout + service extension**
+
+- Add new tokens (prize ranks, hero gradients, timeline, section divider) to `.theme-competitive` in `globals.css`
+- Register new tokens in `@theme inline` block
+- Create `src/app/(public)/layout.tsx`
+- Extend `HackathonWithRelations` type to include `orgName`
+- Update `getHackathonBySlug()` to fetch and return org name
+- Update `getHackathonById()` and `getHackathonsByOrgId()` for type consistency
+
+**Verify:**
+- New Tailwind classes (`bg-prize-gold`, `text-timeline-active`, etc.) resolve correctly in the competitive theme context
+- `getHackathonBySlug()` returns `orgName` alongside hackathon data
+- `(public)/layout.tsx` renders children with `theme-competitive` class applied
+- Existing dashboard functionality unaffected by `HackathonWithRelations` type change
+
+---
+
+**Increment 4B: Page component + Hero + About + Tracks + Footer + 404**
+
+- Create `src/app/(public)/hackathons/[slug]/page.tsx` with `generateMetadata()` and data fetching
+- Create `landing-hero.tsx` (server component)
+- Create `share-buttons.tsx` (client component)
+- Create `landing-about.tsx` (server component)
+- Create `landing-tracks.tsx` (server component)
+- Create `landing-footer.tsx` (server component)
+- Create `not-found.tsx` (404 page)
+
+**Verify:**
+- Published hackathon renders at `/hackathons/[slug]` with hero, about, tracks, footer
+- Draft hackathon returns 404
+- Archived hackathon returns 404
+- Non-existent slug returns styled 404
+- Cover image displays (or gradient fallback if no image)
+- Hero shows title, org name, status badge, registration dates
+- "Register Now" button is present but disabled
+- Share buttons render — Copy Link copies URL with "Copied!" feedback
+- Social share buttons open correct URLs in new tabs
+- About section renders description with clean typography
+- Tracks section renders cards (or inline for single track)
+- Footer shows "Powered by HackForge"
+- OG meta tags render correctly (inspect page source or use a link preview tool)
+
+---
+
+**Increment 4C: Timeline + Prizes**
+
+- Create `landing-timeline.tsx` (server component)
+- Create `landing-prizes.tsx` (server component)
+
+**Verify:**
+- Timeline renders all phases in chronological order
+- Active phase highlighted in cyan, completed in magenta, upcoming in muted
+- Horizontal layout on desktop (≥1024px), vertical on mobile
+- Phase type icons display correctly
+- Prizes render sorted by rank with gold/silver/bronze styling for top 3
+- Prize images display (or gracefully omit if no image)
+- Sections are skipped entirely if no prizes exist
+
+---
+
+**Increment 4D: Rules + FAQs + Sticky nav + responsive polish**
+
+- Create `landing-rules.tsx` (server component)
+- Create `landing-faqs.tsx` (client component)
+- Create `landing-nav.tsx` (client component)
+
+**Verify:**
+- Rules section renders Tiptap HTML with proper typography (headings, lists, links styled)
+- Rules section hidden if `rules_html` is empty/null
+- FAQs section splits HTML by H2 tags into collapsible accordion items
+- Accordion opens/closes smoothly; only one item open at a time
+- FAQs section hidden if `faqs_html` is empty/null
+- Sticky nav appears with section links; only shows links for sections that exist
+- Scroll spy highlights the current section in the nav
+- Nav gets glassmorphism background when sticky
+- Full responsive test at 375px, 768px, and 1280px viewpoints
+- All sections use design tokens — no hardcoded colors
+
+---
+
+### 4.20 Files Changed Summary
+
+| File | Action | Requirement |
+|------|--------|-------------|
+| `src/app/globals.css` | Modified | P4.R12 (new design tokens) |
+| `src/lib/services/hackathon-service.ts` | Modified | P4.R2 (org name in HackathonWithRelations) |
+| `src/app/(public)/layout.tsx` | Created | P4.R1, P4.R12 (competitive theme wrapper) |
+| `src/app/(public)/hackathons/[slug]/page.tsx` | Created | P4.R1, P4.R10 (page + SEO) |
+| `src/app/(public)/hackathons/[slug]/not-found.tsx` | Created | P4.R14 |
+| `src/app/(public)/hackathons/[slug]/_components/landing-hero.tsx` | Created | P4.R2 |
+| `src/app/(public)/hackathons/[slug]/_components/share-buttons.tsx` | Created | P4.R15 |
+| `src/app/(public)/hackathons/[slug]/_components/landing-about.tsx` | Created | P4.R3 |
+| `src/app/(public)/hackathons/[slug]/_components/landing-tracks.tsx` | Created | P4.R4 |
+| `src/app/(public)/hackathons/[slug]/_components/landing-timeline.tsx` | Created | P4.R5 |
+| `src/app/(public)/hackathons/[slug]/_components/landing-prizes.tsx` | Created | P4.R6 |
+| `src/app/(public)/hackathons/[slug]/_components/landing-rules.tsx` | Created | P4.R7 |
+| `src/app/(public)/hackathons/[slug]/_components/landing-faqs.tsx` | Created | P4.R8 |
+| `src/app/(public)/hackathons/[slug]/_components/landing-nav.tsx` | Created | P4.R9 |
+| `src/app/(public)/hackathons/[slug]/_components/landing-footer.tsx` | Created | P4.R13 |
+
+---
+
+### 4.21 Deferred from Part 4
+
+| Item | Reason | Target |
+|------|--------|--------|
+| Animated hero (gradient animation, particle effects) | Clean static hero is sufficient for V1; animations add complexity and potential performance issues | V2 |
+| Countdown timer in hero (time until registration closes) | Nice-to-have but not in PRD scope; requires client-side timer component | V2 |
+| "Register Now" button functionality | Button is rendered but disabled/placeholder; wired in Phase 3 (Registration & Teams) | Phase 3 |
+| "View Results" button functionality | Button is rendered but non-functional; wired in Phase 5 (Judging & Results) | Phase 5 |
+| Landing page theme customization per hackathon | All hackathons use the default competitive theme; per-hackathon theming is V2 | V2 |
+| Judges/Mentors/Sponsors sections | Not in Phase 2 data model; deferred to future phases | V2+ |
+| Image optimization (blur placeholder, responsive srcsets) | `next/image` handles basic optimization; advanced blur placeholders deferred | V2 |
+
+---
+
+*Part 4 complete. All 4 parts of Phase 2 TRD are now written.*
