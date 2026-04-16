@@ -1,11 +1,19 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { Check, Circle, Loader2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { StepTemplate } from './step-template';
 import { StepBasicInfo } from './step-basic-info';
@@ -47,11 +55,32 @@ interface WizardShellProps {
   orgSlug: string;
   orgId: string;
   hackathon?: HackathonWithRelations;
+  existingDraft?: HackathonWithRelations;
   templates: HackathonTemplate[];
   className?: string;
 }
 
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Determine the furthest step the user has completed based on populated data.
+ * Used when resuming a draft to navigate the user to where they left off.
+ */
+function getFurthestStep(data: HackathonWithRelations): number {
+  const { hackathon: h, phases, tracks, prizes } = data;
+  if (h.rulesHtml || h.faqsHtml) return 8;
+  if (prizes.length > 0) return 7;
+  if (h.teamMinSize !== 1 || h.teamMaxSize !== 5) return 6;
+  const allPhaseDates = phases.every((p) => p.startDate && p.endDate);
+  if (allPhaseDates && phases.length > 0) return 5;
+  if (tracks.length > 0) return 4;
+  if (h.title && h.title !== 'Untitled Hackathon') return 3;
+  return 2;
+}
 
 // ---------------------------------------------------------------------------
 // Component
@@ -61,6 +90,7 @@ export function WizardShell({
   orgSlug,
   orgId,
   hackathon,
+  existingDraft,
   templates,
   className,
 }: WizardShellProps) {
@@ -76,6 +106,39 @@ export function WizardShell({
   const [hackathonId, setHackathonId] = useState<string | null>(
     hackathon?.hackathon.id ?? null,
   );
+
+  // Resume-draft dialog state
+  const [showResumeDialog, setShowResumeDialog] = useState(false);
+
+  // Show resume dialog on mount if there's an existing draft and we're NOT in edit mode
+  useEffect(() => {
+    if (existingDraft && !isEditMode) {
+      setShowResumeDialog(true);
+    }
+  }, [existingDraft, isEditMode]);
+
+  // Resume the existing draft — load its data into wizard state
+  const handleResumeDraft = useCallback(() => {
+    if (!existingDraft) return;
+
+    const furthestStep = getFurthestStep(existingDraft);
+
+    setHackathonId(existingDraft.hackathon.id);
+    setHackathonData(existingDraft.hackathon);
+    setPhasesData(existingDraft.phases);
+    setTracksData(existingDraft.tracks);
+    setPrizesData(existingDraft.prizes);
+    setHighestStepReached(furthestStep);
+    setCurrentStepRaw(furthestStep);
+    setShowResumeDialog(false);
+
+    toast.success(`Resumed draft: ${existingDraft.hackathon.title || 'Untitled Hackathon'}`);
+  }, [existingDraft]);
+
+  // Start fresh — dismiss the dialog, stay on Step 1
+  const handleStartFresh = useCallback(() => {
+    setShowResumeDialog(false);
+  }, []);
 
   // Wrapper that also ratchets highestStepReached
   const setCurrentStep = useCallback((stepOrUpdater: number | ((prev: number) => number)) => {
@@ -411,6 +474,28 @@ export function WizardShell({
           </div>
         )}
       </div>
+
+      {/* Resume draft dialog */}
+      <Dialog open={showResumeDialog} onOpenChange={setShowResumeDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Resume your draft?</DialogTitle>
+            <DialogDescription>
+              You have an unfinished draft:{' '}
+              <span className="font-medium text-foreground">
+                {existingDraft?.hackathon.title || 'Untitled Hackathon'}
+              </span>
+              . Would you like to continue where you left off or start a new hackathon from scratch?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={handleStartFresh}>
+              Start Fresh
+            </Button>
+            <Button onClick={handleResumeDraft}>Resume Draft</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

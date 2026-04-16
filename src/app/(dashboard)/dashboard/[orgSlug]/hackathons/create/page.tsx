@@ -2,7 +2,11 @@ import { redirect } from 'next/navigation';
 
 import { auth } from '@/lib/auth/auth';
 import { getOrgBySlug } from '@/lib/services/org-service';
-import { getTemplates } from '@/lib/services/hackathon-service';
+import {
+  getTemplates,
+  getDraftsByUser,
+  getHackathonById,
+} from '@/lib/services/hackathon-service';
 import { WizardShell } from './_components/wizard-shell';
 
 export async function generateMetadata({
@@ -36,6 +40,18 @@ export default async function CreateHackathonPage({
   // Fetch templates for Step 1
   const templates = await getTemplates();
 
+  // Check for existing drafts by this user (for resume-draft flow)
+  const drafts = await getDraftsByUser({
+    orgId: org.id,
+    userId: session.user.id,
+  });
+
+  // If there's a draft, load its full relations so WizardShell can resume
+  const existingDraft =
+    drafts.length > 0
+      ? await getHackathonById({ hackathonId: drafts[0].id, orgId: org.id })
+      : null;
+
   return (
     <div className="space-y-6">
       <div>
@@ -49,6 +65,7 @@ export default async function CreateHackathonPage({
         orgSlug={orgSlug}
         orgId={org.id}
         templates={templates}
+        existingDraft={existingDraft ?? undefined}
       />
     </div>
   );
