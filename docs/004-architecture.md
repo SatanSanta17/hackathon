@@ -2,7 +2,7 @@
 
 **Document ID:** ARCH-004  
 **Date:** April 16, 2026  
-**Status:** Phase 2 Part 3 Complete (Hackathon List + Management + Lifecycle Engine)  
+**Status:** Phase 2 Complete (All 4 Parts — Schema, Wizard, Dashboard, Landing Page)  
 **Update Frequency:** Every development phase
 
 ---
@@ -186,7 +186,23 @@ hackforge/                              # PROJECT ROOT
     │   │           ├── orgs-table.tsx
     │   │           └── users-table.tsx
     │   │
-    │   ├── (public)/                   # Public pages (Phase 2+ — empty)
+    │   ├── (public)/                   # Public pages (no auth required)
+    │   │   ├── layout.tsx              # Competitive dark theme wrapper (.theme-competitive)
+    │   │   └── hackathons/
+    │   │       └── [slug]/
+    │   │           ├── page.tsx         # Landing page (SSR + generateMetadata for SEO/OG)
+    │   │           ├── not-found.tsx    # Styled 404 for invalid/draft/archived slugs
+    │   │           └── _components/
+    │   │               ├── landing-hero.tsx      # Cover image/gradient, title, status, CTA
+    │   │               ├── share-buttons.tsx     # Copy Link, X, LinkedIn, WhatsApp (client)
+    │   │               ├── landing-about.tsx     # Description section
+    │   │               ├── landing-tracks.tsx    # Track cards (single inline / multi grid)
+    │   │               ├── landing-timeline.tsx  # Horizontal (lg+) / vertical timeline
+    │   │               ├── landing-prizes.tsx    # Prize cards with rank styling
+    │   │               ├── landing-rules.tsx     # Rich text (prose prose-invert)
+    │   │               ├── landing-faqs.tsx      # Accordion with CSS grid animation (client)
+    │   │               ├── landing-nav.tsx       # Sticky scroll-spy nav (client)
+    │   │               └── landing-footer.tsx    # "Powered by HackForge"
     │   │
     │   └── api/
     │       ├── auth/
@@ -324,7 +340,7 @@ hackforge/                              # PROJECT ROOT
 
 ## Data Model
 
-> **Note:** Core Tables below reflect the ACTUAL implemented schema (Phase 1). Tables marked "Planned" are not yet built.
+> **Note:** Core Tables and Hackathon Tables below reflect the ACTUAL implemented schema (Phase 1 + Phase 2). Tables marked "Planned" are not yet built.
 
 ### Core Tables (Phase 1 — Implemented)
 
@@ -616,4 +632,4 @@ notification_type: registration, submission, judging, result, announcement
 
 ---
 
-*This document reflects what EXISTS in the codebase as of Phase 2 Part 3 completion (April 17, 2026). It is updated after each development part. Planned tables will be validated against actual implementation during their respective phases.*
+*This document reflects what EXISTS in the codebase as of Phase 2 completion (April 17, 2026). It is updated after each development part. Planned tables will be validated against actual implementation during their respective phases.*

@@ -3,7 +3,7 @@
 **Document ID:** TRD-007  
 **Date:** April 16, 2026  
 **Author:** Burhanuddin C.  
-**Status:** Draft — Parts 1–4 Written  
+**Status:** Complete — Parts 1–4 Implemented  
 **PRD Reference:** `docs/007-hackathon-creation/prd.md`  
 **Architecture Reference:** `docs/004-architecture.md`  
 **Conventions Reference:** `docs/003-coding-conventions.md`
@@ -4873,3 +4873,29 @@ Part 4 is implemented in 4 increments, each independently verifiable.
 ---
 
 *Part 4 complete. All 4 parts of Phase 2 TRD are now written.*
+
+---
+
+## Post-Implementation: Build & Lint Cleanup
+
+### Suspense Boundaries for `useSearchParams()`
+
+**Issue:** Next.js 16 requires any client component using `useSearchParams()` to be wrapped in a `<Suspense>` boundary. Without this, `next build` fails during static prerendering with: `useSearchParams() should be wrapped in a suspense boundary`.
+
+**Pattern applied to 4 pages:**
+
+1. **Page-level client components** (e.g., `verify-email/page.tsx`, `invite/accept/page.tsx`): Extract the content into a named inner component (e.g., `VerifyEmailContent`), wrap it in `<Suspense fallback={<LoadingUI />}>` in the default export.
+
+2. **Server pages rendering client children** (e.g., `login/page.tsx`, `reset-password/page.tsx`): Wrap the client component (`<LoginForm />`, `<ResetPasswordForm />`) in `<Suspense>` at the parent page level.
+
+**Why:** During static prerendering, `useSearchParams()` returns `null` because there's no request context. Suspense tells Next.js to defer rendering that subtree to the client, using the fallback shell for the static HTML.
+
+### ESLint Fixes
+
+**`react-hooks/immutability`:** State setters referenced before their `useState` declaration in `wizard-shell.tsx` — fixed by reordering state declarations above callbacks. Same pattern in `invite/accept/page.tsx` — fixed by moving `acceptInvite()` function declaration above the `useEffect` that calls it.
+
+**`react-hooks/set-state-in-effect`:** Synchronous `setState` calls in effect bodies — fixed by either (a) using conditional initial state values instead of mount effects (verify-email, wizard resume dialog), or (b) deriving synchronous state outside the effect and using the effect only for async work (invite/accept).
+
+**`react/no-unescaped-entities`:** Unescaped apostrophes in JSX text — replaced `'` with `&apos;` in `dashboard/page.tsx` and `invite/accept/page.tsx`.
+
+**`@typescript-eslint/no-unused-vars`:** Removed unused `useRouter` import in `invite/accept/page.tsx`.

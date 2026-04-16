@@ -6,6 +6,40 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Phase 2, Part 4: Public Hackathon Landing Page (April 17, 2026)
+
+#### Added
+- Public landing page route: `/hackathons/[slug]` under `(public)` route group with competitive dark theme
+- Public layout: applies `.theme-competitive` class to all public-facing pages
+- Hero section: cover image with `next/image` (priority) or gradient fallback, title (Space Grotesk), org name, status badge, registration dates, disabled "Register Now" CTA (wired in Phase 3)
+- Share buttons: Copy Link (Clipboard API with "Copied!" feedback), X/Twitter, LinkedIn, WhatsApp — icons only on mobile, icons + labels on sm+
+- About section: hackathon description with `whitespace-pre-line` and `max-w-3xl`
+- Tracks section: single track inline vs multi-track responsive card grid (1→2→3 cols) with external resource links
+- Timeline section: horizontal layout (lg+) with connector line, vertical layout (mobile/tablet), phase type icons (UserPlus, Upload, Search, Scale, Trophy), token-driven state colors (active/completed/upcoming)
+- Prizes section: sorted by rank, top 3 with gold/silver/bronze accent backgrounds, prize images via signed URLs
+- Rules section: renders Tiptap HTML via `dangerouslySetInnerHTML` with `prose prose-invert` typography styling
+- FAQs section: client-side accordion with `grid-rows-[1fr]/grid-rows-[0fr]` CSS animation, parses H2 headings as questions, single-open mode
+- Sticky section nav: Intersection Observer scroll spy with `rootMargin: '-20% 0px -70% 0px'`, sentinel pattern for sticky detection, glassmorphism (`backdrop-blur-md bg-background/80`) when stuck, horizontal scroll on mobile
+- Footer: "Powered by HackForge" branding with homepage link
+- Custom 404 page: SearchX icon, ambiguous messaging ("not found or no longer available"), "Back to HackForge" CTA
+- SEO: `generateMetadata()` with Open Graph (title, description, cover image) and Twitter card tags
+- Status gating: only `published`, `active`, `judging`, `completed` statuses render; `draft` and `archived` return `notFound()`
+- 15 new CSS design tokens in `.theme-competitive`: prize accents (gold/silver/bronze), hero gradient fallback, timeline phase states (active/completed/upcoming/connector), section divider — all registered in `@theme inline` block
+
+#### Changed
+- `HackathonWithRelations` interface extended with `orgName: string`
+- `getHackathonBySlug()` and `getHackathonById()` now fetch and return org name from organizations table
+
+### Phase 2 Cleanup: ESLint + Build Fixes (April 17, 2026)
+
+#### Fixed
+- `wizard-shell.tsx`: moved state declarations (`setHackathonData`, `setPhasesData`, `setTracksData`, `setPrizesData`, `setVisitedSteps`) above callbacks that referenced them — fixed `react-hooks/immutability` errors; added `setCurrentStep` to `handleTemplateSelect` dependency array — fixed `react-hooks/exhaustive-deps` warning; replaced `useEffect` + synchronous `setState` with direct initial state for resume dialog — fixed `react-hooks/set-state-in-effect`; removed unused `useEffect` import
+- `dashboard/page.tsx`: escaped apostrophe in "you'd" — fixed `react/no-unescaped-entities`
+- `verify-email/page.tsx`: replaced synchronous `setState` in effect with conditional initial state for no-token case — fixed `react-hooks/set-state-in-effect`; extracted content into `VerifyEmailContent` component and wrapped in `<Suspense>` boundary — fixed Next.js build prerender error for `useSearchParams()`
+- `invite/accept/page.tsx`: refactored to derive synchronous states (no-token, not-logged-in, unverified) outside the effect, using effect only for async API call — fixed `react-hooks/set-state-in-effect` and `react-hooks/immutability`; removed unused `useRouter` import — fixed `@typescript-eslint/no-unused-vars`; escaped apostrophe in "Don't" — fixed `react/no-unescaped-entities`; wrapped `InviteAcceptContent` in `<Suspense>` boundary — fixed Next.js build prerender error
+- `login/page.tsx`: wrapped `<LoginForm />` in `<Suspense>` boundary — fixed potential Next.js build prerender error for `useSearchParams()`
+- `reset-password/page.tsx`: wrapped `<ResetPasswordForm />` in `<Suspense>` boundary — fixed potential Next.js build prerender error for `useSearchParams()`
+
 ### Phase 2, Part 3: Hackathon List + Management (April 17, 2026)
 
 #### Added
