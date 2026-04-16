@@ -66,7 +66,7 @@ export default function VerifyEmailPage() {
 
         {state === 'success' && (
           <>
-            <CheckCircle className="mx-auto size-10 text-emerald-600" />
+            <CheckCircle className="mx-auto size-10 text-primary" />
             <div className="space-y-1">
               <h2 className="text-lg font-heading font-semibold text-foreground">
                 Email verified!

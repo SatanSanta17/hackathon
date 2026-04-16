@@ -41,7 +41,7 @@ export function VerificationBanner() {
   return (
     <div
       role="alert"
-      className="flex items-center gap-3 border-b border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+      className="flex items-center gap-3 border-b border-border bg-muted px-4 py-3 text-sm text-muted-foreground"
     >
       <AlertTriangle className="size-4 shrink-0" />
       <p className="flex-1">
@@ -52,7 +52,7 @@ export function VerificationBanner() {
         size="sm"
         onClick={handleResend}
         disabled={isSending}
-        className="shrink-0 border-amber-300 text-amber-800 hover:bg-amber-100"
+        className="shrink-0"
       >
         {isSending ? 'Sending...' : 'Resend verification email'}
       </Button>

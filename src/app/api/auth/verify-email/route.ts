@@ -1,6 +1,11 @@
 import { NextResponse } from 'next/server';
+import { z } from 'zod';
 
 import { verifyEmail } from '@/lib/services/auth-service';
+
+const verifyEmailSchema = z.object({
+  token: z.string().min(1, 'Token is required'),
+});
 
 export async function POST(request: Request) {
   console.log('[api/auth/verify-email] POST');
@@ -8,15 +13,16 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
 
-    const token = body?.token;
-    if (!token || typeof token !== 'string') {
+    const parsed = verifyEmailSchema.safeParse(body);
+    if (!parsed.success) {
+      console.log('[api/auth/verify-email] Validation failed:', parsed.error.flatten());
       return NextResponse.json(
         { message: 'Token is required.' },
         { status: 400 },
       );
     }
 
-    const result = await verifyEmail({ token });
+    const result = await verifyEmail({ token: parsed.data.token });
 
     if (!result.success) {
       if (result.error === 'INVALID_TOKEN') {
