@@ -48,6 +48,28 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+
+  /* Prize rank colors */
+  --color-prize-gold: var(--prize-gold);
+  --color-prize-gold-foreground: var(--prize-gold-foreground);
+  --color-prize-silver: var(--prize-silver);
+  --color-prize-silver-foreground: var(--prize-silver-foreground);
+  --color-prize-bronze: var(--prize-bronze);
+  --color-prize-bronze-foreground: var(--prize-bronze-foreground);
+
+  /* Hero gradient */
+  --color-hero-gradient-from: var(--hero-gradient-from);
+  --color-hero-gradient-via: var(--hero-gradient-via);
+  --color-hero-gradient-to: var(--hero-gradient-to);
+
+  /* Timeline */
+  --color-timeline-active: var(--timeline-active);
+  --color-timeline-completed: var(--timeline-completed);
+  --color-timeline-upcoming: var(--timeline-upcoming);
+  --color-timeline-connector: var(--timeline-connector);
+
+  /* Section divider */
+  --color-section-divider: var(--section-divider);
 }
 
 :root {
@@ -182,6 +204,28 @@
   --sidebar-accent-foreground: oklch(0.95 0 0);
   --sidebar-border: oklch(1 0 0 / 12%);
   --sidebar-ring: oklch(0.78 0.18 195);
+
+  /* Prize rank accents — gold / silver / bronze */
+  --prize-gold: oklch(0.82 0.17 85);
+  --prize-gold-foreground: oklch(0.18 0.02 85);
+  --prize-silver: oklch(0.78 0.03 260);
+  --prize-silver-foreground: oklch(0.18 0.02 260);
+  --prize-bronze: oklch(0.68 0.12 55);
+  --prize-bronze-foreground: oklch(0.18 0.02 55);
+
+  /* Hero gradient fallback (when no cover image) */
+  --hero-gradient-from: oklch(0.18 0.04 260);
+  --hero-gradient-via: oklch(0.15 0.06 280);
+  --hero-gradient-to: oklch(0.12 0.04 310);
+
+  /* Timeline phase states */
+  --timeline-active: oklch(0.78 0.18 195);       /* cyan — same as primary */
+  --timeline-completed: oklch(0.65 0.25 310);    /* magenta — same as accent */
+  --timeline-upcoming: oklch(0.4 0.02 260);      /* muted dark */
+  --timeline-connector: oklch(1 0 0 / 15%);      /* subtle white line */
+
+  /* Section divider */
+  --section-divider: oklch(1 0 0 / 8%);
 }
 
 @layer base {

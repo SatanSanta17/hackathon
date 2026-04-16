@@ -7,6 +7,7 @@ import {
   tracks,
   prizes,
   hackathonTemplates,
+  organizations,
 } from '@/db/schema';
 import type {
   Hackathon,
@@ -34,6 +35,7 @@ export interface TemplatePhase {
 /** Full hackathon with related entities */
 export interface HackathonWithRelations {
   hackathon: Hackathon;
+  orgName: string;
   phases: Phase[];
   tracks: Track[];
   prizes: Prize[];
@@ -175,6 +177,12 @@ export async function getHackathonById(params: {
 
   if (!hackathon) return null;
 
+  // Fetch org name for display
+  const org = await db.query.organizations.findFirst({
+    where: eq(organizations.id, hackathon.orgId),
+    columns: { name: true },
+  });
+
   let relations = await fetchHackathonRelations(hackathon.id);
 
   // Check-on-access: resolve status based on current date
@@ -190,6 +198,7 @@ export async function getHackathonById(params: {
 
   return {
     hackathon: { ...hackathon, status: hackathonStatus },
+    orgName: org?.name ?? 'Unknown Organization',
     ...relations,
   };
 }
@@ -212,6 +221,12 @@ export async function getHackathonBySlug(
 
   if (!hackathon) return null;
 
+  // Fetch org name for public display (landing page hero)
+  const org = await db.query.organizations.findFirst({
+    where: eq(organizations.id, hackathon.orgId),
+    columns: { name: true },
+  });
+
   let relations = await fetchHackathonRelations(hackathon.id);
 
   // Check-on-access: resolve status based on current date
@@ -227,6 +242,7 @@ export async function getHackathonBySlug(
 
   return {
     hackathon: { ...hackathon, status: hackathonStatus },
+    orgName: org?.name ?? 'Unknown Organization',
     ...relations,
   };
 }
