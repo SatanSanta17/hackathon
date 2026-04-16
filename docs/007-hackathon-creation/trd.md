@@ -1442,4 +1442,806 @@ No new environment variables. `SUPABASE_STORAGE_URL` and `SUPABASE_SERVICE_ROLE_
 
 ---
 
-*Part 1 complete. Parts 2–4 will be written after Part 1 is approved and implemented.*
+*Part 1 complete.*
+
+---
+---
+
+## Part 2: Hackathon Creation Wizard
+
+**PRD Requirements Covered:** P2.R1 through P2.R16
+
+---
+
+### 2.1 Dependencies (New for Part 2)
+
+```bash
+npm install @tiptap/react @tiptap/starter-kit @tiptap/extension-link @tiptap/pm react-cropper cropperjs @hello-pangea/dnd
+```
+
+| Package | Purpose | Notes |
+|---------|---------|-------|
+| `@tiptap/react` | Headless rich text editor for React | Rules & FAQs editor (Step 7) |
+| `@tiptap/starter-kit` | Bundle: bold, italic, headings, lists, history | Core formatting for P2.R8 |
+| `@tiptap/extension-link` | Link support for Tiptap | Rules/FAQs need hyperlinks |
+| `@tiptap/pm` | ProseMirror core (Tiptap peer dependency) | Required by @tiptap/react |
+| `react-cropper` | React wrapper around Cropper.js | Cover image 16:9 cropping (P2.R3) |
+| `cropperjs` | Image cropping library | Peer dependency for react-cropper |
+| `@hello-pangea/dnd` | Drag-and-drop for React (Atlassian fork) | Track and prize reordering (P2.R4, P2.R7) |
+
+**Why these libraries:**
+- **Tiptap over Slate/Quill:** Headless, extensible, outputs clean HTML, excellent TypeScript support, active maintenance. Non-technical admins get a WYSIWYG experience without markdown knowledge.
+- **react-cropper over react-image-crop:** More mature, supports aspect ratio locking natively, generates canvas blobs directly (needed for client-side crop → upload flow).
+- **@hello-pangea/dnd over dnd-kit:** Simpler API for vertical list reordering (our only use case). The Atlassian fork of react-beautiful-dnd is actively maintained and has better accessibility defaults.
+
+---
+
+### 2.2 Route Structure
+
+All wizard routes live under the existing `(dashboard)` route group:
+
+```
+src/app/(dashboard)/dashboard/[orgSlug]/hackathons/
+├── page.tsx                          # Hackathon list (Part 3 — placeholder exists)
+└── create/
+    ├── page.tsx                      # Wizard entry point (server component)
+    └── _components/
+        ├── wizard-shell.tsx          # Step indicator + navigation + layout
+        ├── step-template.tsx         # Step 1: Choose Template
+        ├── step-basic-info.tsx       # Step 2: Title, description, cover, slug
+        ├── step-tracks.tsx           # Step 3: Tracks/Themes
+        ├── step-timeline.tsx         # Step 4: Phase dates
+        ├── step-team-rules.tsx       # Step 5: Team config + visibility
+        ├── step-prizes.tsx           # Step 6: Prizes
+        ├── step-rules-faqs.tsx       # Step 7: Tiptap editors
+        ├── step-review.tsx           # Step 8: Summary + Publish
+        ├── image-crop-modal.tsx      # Cover image crop dialog (16:9)
+        └── tiptap-editor.tsx         # Reusable Tiptap wrapper
+```
+
+**Edit mode route:** Editing an existing hackathon reuses the same wizard components. Route: `/dashboard/[orgSlug]/hackathons/[hackathonId]/edit`. The `edit/page.tsx` loads the existing hackathon data and passes it to the wizard shell.
+
+```
+src/app/(dashboard)/dashboard/[orgSlug]/hackathons/
+└── [hackathonId]/
+    └── edit/
+        └── page.tsx                  # Edit wizard entry (server component — loads data, renders wizard shell)
+```
+
+---
+
+### 2.3 API Route Structure (P2.R13)
+
+All hackathon API routes live under `src/app/api/hackathons/`:
+
+```
+src/app/api/
+├── hackathons/
+│   ├── route.ts                                # POST — create draft from template
+│   └── [hackathonId]/
+│       ├── route.ts                            # PATCH — update hackathon fields
+│       ├── publish/
+│       │   └── route.ts                        # POST — publish hackathon
+│       ├── tracks/
+│       │   ├── route.ts                        # POST — add track
+│       │   └── [trackId]/
+│       │       └── route.ts                    # PATCH — edit track, DELETE — remove track
+│       ├── phases/
+│       │   └── [phaseId]/
+│       │       └── route.ts                    # PATCH — update phase dates/name
+│       └── prizes/
+│           ├── route.ts                        # POST — add prize
+│           └── [prizeId]/
+│               └── route.ts                    # PATCH — edit prize, DELETE — remove prize
+└── upload/
+    └── image/
+        └── route.ts                            # POST — upload image via StorageProvider
+```
+
+---
+
+### 2.4 API Route Implementations (P2.R13, P2.R14)
+
+Every API route follows the established pattern from Phase 1:
+1. Auth check via `requireOrgRole({ orgId, allowedRoles: ['org_admin'] })`
+2. Input validation via Zod `.safeParse()`
+3. Service call
+4. Structured JSON response
+
+#### 2.4.1 `POST /api/hackathons` — Create Hackathon Draft
+
+**File:** `src/app/api/hackathons/route.ts`
+
+```typescript
+// Auth: requireOrgRole with org_admin
+// Validation: createHackathonSchema (templateId)
+// Service: createHackathon({ orgId, templateId, userId })
+// Response: 201 { hackathon } | 400 | 401 | 403 | 404
+```
+
+**Logic:**
+1. Parse body with `createHackathonSchema` — extract `templateId` and `orgId`
+2. The `orgId` comes from the request body (the client knows which org it's operating in). The auth guard verifies the user is an `org_admin` of that org.
+3. Call `createHackathon()` — creates draft with placeholder title, clones template phases
+4. Return the created hackathon object (needed for client redirect to Step 2)
+
+**Org resolution note:** Unlike Phase 1's `/api/orgs/[orgId]/...` pattern which embeds `orgId` in the URL, hackathon API routes accept `orgId` in the request body. This is because hackathons are also accessed via slug in public-facing contexts (Part 4), and the API URL pattern (`/api/hackathons/[hackathonId]`) is hackathon-centric, not org-centric. The org ownership check happens in the service layer.
+
+#### 2.4.2 `PATCH /api/hackathons/[hackathonId]` — Update Hackathon
+
+**File:** `src/app/api/hackathons/[hackathonId]/route.ts`
+
+```typescript
+// Auth: requireOrgRole with org_admin
+// Validation: updateHackathonSchema (partial fields)
+// Service: updateHackathon({ hackathonId, orgId, data })
+// Response: 200 { hackathon, slugModified?, newSlug? } | 400 | 401 | 403 | 404
+```
+
+**Logic:**
+1. Parse body with `updateHackathonSchema`
+2. Call `updateHackathon()` — handles slug regeneration, collision detection
+3. If `slugModified` is true, include `newSlug` in response for the UI to display the collision notification
+
+**Stale-data detection (P2.R16):** The client sends `updatedAt` (the timestamp it loaded) along with the update payload. The API route compares it against the current `updatedAt` in the database. If they differ, the response includes `{ staleWarning: true }` — but the update still proceeds (last-write-wins). The client displays a non-blocking toast.
+
+#### 2.4.3 `POST /api/hackathons/[hackathonId]/tracks` — Add Track
+
+**File:** `src/app/api/hackathons/[hackathonId]/tracks/route.ts`
+
+```typescript
+// Auth: requireOrgRole with org_admin
+// Validation: createTrackSchema
+// Service: direct Drizzle insert into tracks table
+// Response: 201 { track } | 400 | 401 | 403
+```
+
+**Logic:**
+1. Verify hackathon belongs to the user's org (fetch hackathon, compare orgId)
+2. Auto-assign `order` as `max(order) + 1` for the hackathon's existing tracks
+3. Insert track, return created record
+
+#### 2.4.4 `PATCH /api/hackathons/[hackathonId]/tracks/[trackId]` — Edit Track
+
+**File:** `src/app/api/hackathons/[hackathonId]/tracks/[trackId]/route.ts`
+
+```typescript
+// Auth: requireOrgRole with org_admin
+// Validation: updateTrackSchema (partial)
+// Service: direct Drizzle update on tracks table
+// Response: 200 { track } | 400 | 401 | 403 | 404
+```
+
+#### 2.4.5 `DELETE /api/hackathons/[hackathonId]/tracks/[trackId]` — Remove Track
+
+**File:** Same file as PATCH (co-located in `route.ts`)
+
+```typescript
+// Auth: requireOrgRole with org_admin
+// Service: hard delete from tracks table (not a domain entity — cascade child)
+// Response: 200 { message } | 401 | 403 | 404
+```
+
+**Note:** Tracks are hard-deleted (not soft-deleted). They are child entities of hackathons with CASCADE delete. The PRD allows track removal during creation.
+
+#### 2.4.6 `PATCH /api/hackathons/[hackathonId]/phases/[phaseId]` — Update Phase
+
+**File:** `src/app/api/hackathons/[hackathonId]/phases/[phaseId]/route.ts`
+
+```typescript
+// Auth: requireOrgRole with org_admin
+// Validation: updatePhaseSchema (name, startDate, endDate only)
+// Service: direct Drizzle update on phases table
+// Response: 200 { phase } | 400 | 401 | 403 | 404
+```
+
+**Restriction:** Only `name`, `startDate`, and `endDate` can be updated. `type` and `order` are template-locked and cannot be changed after creation.
+
+#### 2.4.7 `POST /api/hackathons/[hackathonId]/prizes` — Add Prize
+
+**File:** `src/app/api/hackathons/[hackathonId]/prizes/route.ts`
+
+```typescript
+// Auth: requireOrgRole with org_admin
+// Validation: createPrizeSchema
+// Service: direct Drizzle insert into prizes table
+// Response: 201 { prize } | 400 | 401 | 403
+```
+
+#### 2.4.8 `PATCH /api/hackathons/[hackathonId]/prizes/[prizeId]` — Edit Prize
+
+**File:** `src/app/api/hackathons/[hackathonId]/prizes/[prizeId]/route.ts`
+
+#### 2.4.9 `DELETE /api/hackathons/[hackathonId]/prizes/[prizeId]` — Remove Prize
+
+**File:** Same file as PATCH (co-located)
+
+Same pattern as tracks — hard delete for child entities.
+
+#### 2.4.10 `POST /api/hackathons/[hackathonId]/publish` — Publish Hackathon
+
+**File:** `src/app/api/hackathons/[hackathonId]/publish/route.ts`
+
+```typescript
+// Auth: requireOrgRole with org_admin
+// Service: publishHackathon({ hackathonId, orgId })
+// Response: 200 { message, slug } | 400 | 401 | 403 | 404
+```
+
+**Logic:** Delegates entirely to `publishHackathon()` in the service layer, which validates: title set, ≥1 track, all phase dates configured. Returns the slug for client-side redirect to the landing page.
+
+#### 2.4.11 `POST /api/upload/image` — Upload Image
+
+**File:** `src/app/api/upload/image/route.ts`
+
+```typescript
+// Auth: requireVerifiedUser()
+// Validation: multipart form data — file + hackathonId + imageType ('cover' | 'prize') + prizeId?
+// Service: getStorageProvider().upload()
+// Response: 200 { key, url } | 400 | 401 | 413
+```
+
+**Logic:**
+1. Parse multipart form data (`request.formData()`)
+2. Extract file, hackathonId, imageType, optional prizeId
+3. Verify the user has org_admin access to the hackathon's org
+4. Validate file type and size using `STORAGE_CONSTANTS`
+5. Generate storage path using `STORAGE_CONSTANTS.paths.coverImage()` or `.prizeImage()`
+6. Upload via `getStorageProvider().upload()`
+7. Return the storage key (client saves it to the hackathon/prize record via PATCH)
+
+**Why a separate upload route instead of embedding in PATCH:** File uploads use `multipart/form-data`, while all other routes use `application/json`. Mixing them complicates both client and server code. The upload route returns a `key`, which the client then sends as `coverImageKey` in the regular PATCH call. This two-step pattern is standard and keeps each route simple.
+
+---
+
+### 2.5 Wizard Shell Component (P2.R1)
+
+**File:** `src/app/(dashboard)/dashboard/[orgSlug]/hackathons/create/_components/wizard-shell.tsx`
+
+**Type:** Client component (`'use client'`)
+
+```typescript
+interface WizardShellProps {
+  orgSlug: string;
+  orgId: string;
+  hackathon?: HackathonWithRelations;   // null for create, populated for edit
+  templates: HackathonTemplate[];        // fetched server-side, passed as prop
+  className?: string;
+}
+```
+
+**State management:**
+- `currentStep: number` (1–8) — tracks which step is active
+- `hackathonId: string | null` — set after Step 1 creates the draft
+- `hackathonData: Partial<Hackathon>` — local cache of saved data (synced on each step save)
+- `phasesData: Phase[]` — local cache of phases
+- `tracksData: Track[]` — local cache of tracks
+- `prizesData: Prize[]` — local cache of prizes
+- `isSaving: boolean` — shows "Saving..." indicator
+- `saveError: string | null` — shows error toast if save fails
+
+**Step indicator:**
+- Rendered as a vertical sidebar on desktop (≥1024px), horizontal stepper on mobile
+- Each step shows: step number, step name, status icon (completed ✓, current •, upcoming ○)
+- Completed steps are clickable (navigate back). Upcoming steps are disabled unless all prior steps are valid.
+- Uses `cn()` for conditional styling: `bg-primary text-primary-foreground` for current, `text-muted-foreground` for upcoming
+
+**Navigation logic:**
+- "Back" button: always available after Step 1. Saves current step data, then decrements `currentStep`.
+- "Next" button: validates current step's form. If valid, saves to DB via API, then increments `currentStep`. If save fails, shows error toast and blocks navigation (P2.R10).
+- "Save Draft" button: persistent in footer on every step (P2.R15). Saves current step's form data without advancing. Shows confirmation toast.
+- Step indicator clicks: same as "Back" — save current, navigate to clicked step.
+
+**Auto-save implementation (P2.R10):**
+- On every step transition (Next, Back, or step indicator click), the wizard calls `saveCurrentStep()`.
+- `saveCurrentStep()` calls the appropriate API route for the current step's data.
+- UI feedback: a subtle text indicator near the step indicator — "Saving..." (with spinner) → "Saved" (with checkmark, fades after 2s) → "Save failed" (red, persists until next attempt).
+- If save fails, navigation is blocked and an error toast is shown via `sonner`.
+
+**Edit mode (P2.R8 from Part 3, P2.R11):**
+- When `hackathon` prop is provided (edit mode), the wizard pre-fills all steps with existing data.
+- `currentStep` starts at Step 2 (Step 1 is template selection — locked after creation).
+- For published hackathons: template selection (Step 1) and phase structure (Step 4 type/order) are read-only. All other fields remain editable.
+
+**Resume draft (P2.R11):**
+- The `create/page.tsx` server component checks for existing drafts before rendering.
+- If a draft exists: shows a dialog — "You have an unfinished draft: [title]. Resume editing or start fresh?"
+- "Resume" loads the draft data and navigates to the furthest completed step (determined by which fields are populated: title set → past Step 2, tracks exist → past Step 3, etc.)
+- "Start fresh" navigates to Step 1 with no pre-filled data.
+
+---
+
+### 2.6 Step 1: Choose Template (P2.R2)
+
+**File:** `step-template.tsx` — Client component
+
+```typescript
+interface StepTemplateProps {
+  templates: HackathonTemplate[];
+  onSelect: (templateId: string) => Promise<void>;
+  className?: string;
+}
+```
+
+**Rendering:**
+- 4 template cards in a 2×2 grid (desktop) or single column (mobile)
+- Each card shows: Lucide icon (mapped from `template.icon` string), template name, description
+- Selected card has `ring-2 ring-primary` styling
+- Cards use `cursor-pointer hover:border-primary` for interaction
+
+**Icon mapping:** A static map converts the `icon` string from the template record to a Lucide component:
+```typescript
+const TEMPLATE_ICONS: Record<string, LucideIcon> = {
+  lightbulb: Lightbulb,
+  rocket: Rocket,
+  layers: Layers,
+  globe: Globe,
+};
+```
+
+**On select:**
+1. Set visual selection state
+2. Call `POST /api/hackathons` with `{ templateId, orgId }`
+3. On success: store `hackathonId` in wizard state, advance to Step 2
+4. On error: show error toast, remain on Step 1
+
+**This is the only step that creates a DB record.** All subsequent steps update the existing record.
+
+---
+
+### 2.7 Step 2: Basic Info (P2.R3)
+
+**File:** `step-basic-info.tsx` — Client component
+
+**Form fields (react-hook-form + Zod):**
+- **Title** (required): text input. On change, auto-generates slug preview (same pattern as create-org-form: watch title → slugify → set slug, until user manually edits slug).
+- **Description** (optional): textarea, max 5000 chars.
+- **Slug** (auto-generated, editable): text input prefixed with `hackforge.com/hackathons/`. Validated with slug regex. If the user edits it manually, auto-generation from title stops (tracked via `isSlugManuallyEdited` ref).
+- **Cover image** (optional): drag-and-drop zone + click-to-browse. Accepts PNG, JPG, WEBP up to 5MB (validated client-side using `STORAGE_CONSTANTS`).
+
+**Cover image upload flow (P2.R3):**
+1. User selects/drops an image file
+2. Client-side validation: file type and size against `STORAGE_CONSTANTS`
+3. **Crop modal opens** (`image-crop-modal.tsx`) with 16:9 aspect ratio locked
+4. User adjusts crop region, clicks "Crop & Upload"
+5. Cropped image is generated as a canvas blob on the client (`cropper.getCroppedCanvas().toBlob()`)
+6. Blob is uploaded to `POST /api/upload/image` as multipart form data
+7. API returns `{ key, url }` — `key` is stored in form state as `coverImageKey`, `url` is used for preview
+8. On step save, `coverImageKey` is sent in the PATCH request
+
+**Slug collision handling:**
+- On step save (when slug or title changes), the PATCH response may include `{ slugModified: true, newSlug: 'innovation-2026-2' }`
+- If `slugModified`, show an inline info message below the slug input: "A hackathon with this slug already exists. We've modified yours to **[new-slug]**. You can edit it manually."
+- Update the slug field value to the new slug
+
+---
+
+### 2.8 Image Crop Modal (P2.R3)
+
+**File:** `image-crop-modal.tsx` — Client component
+
+```typescript
+interface ImageCropModalProps {
+  imageFile: File;
+  aspectRatio: number;              // 16/9 from STORAGE_CONSTANTS
+  isOpen: boolean;
+  onClose: () => void;
+  onCropComplete: (blob: Blob) => void;
+  className?: string;
+}
+```
+
+**Implementation:**
+- Uses `react-cropper` (Cropper.js wrapper)
+- Modal rendered via shadcn `Dialog` component
+- Aspect ratio locked to 16:9 (passed as prop, sourced from `STORAGE_CONSTANTS.COVER_IMAGE_ASPECT_RATIO`)
+- Preview area shows the crop region in real-time
+- "Crop & Upload" button: calls `cropper.getCroppedCanvas({ width: 1280, height: 720 }).toBlob()` — outputs a 1280×720 image for consistent hero sizes
+- "Cancel" button: closes modal, discards the file selection
+- Loading state during crop canvas generation (can take a moment for large images)
+
+**No server-side image processing.** The canvas blob is the final image. The server receives and stores it as-is.
+
+---
+
+### 2.9 Step 3: Tracks/Themes (P2.R4)
+
+**File:** `step-tracks.tsx` — Client component
+
+**State:** Array of tracks managed locally, synced to DB on individual add/edit/remove operations (not batched on step save).
+
+**UI:**
+- List of track cards, each showing: name, description preview, resources URL, drag handle, edit/delete buttons
+- "Add Track" button at the bottom opens an inline form (not a modal — keeps context visible)
+- Inline form: name (required), description (optional textarea), resources URL (optional)
+- **Drag-and-drop reordering** via `@hello-pangea/dnd`: `DragDropContext` → `Droppable` → `Draggable` per track
+- Minimum 1 track required for publish (validated in Step 8, not enforced here — admin can have 0 tracks while drafting)
+
+**API calls (immediate, not batched):**
+- Add: `POST /api/hackathons/[id]/tracks` → appends to local state
+- Edit: `PATCH /api/hackathons/[id]/tracks/[trackId]` → updates local state
+- Remove: `DELETE /api/hackathons/[id]/tracks/[trackId]` → removes from local state
+- Reorder: `PATCH /api/hackathons/[id]/tracks/[trackId]` with new `order` value for each moved track
+
+**Why immediate saves (not batched):** Tracks are separate DB records, not fields on the hackathon. Batching would require a complex diff algorithm. Immediate saves are simpler, and the "Saving..." indicator provides feedback. If any individual operation fails, the error is shown immediately and the local state rolls back.
+
+---
+
+### 2.10 Step 4: Timeline (P2.R5)
+
+**File:** `step-timeline.tsx` — Client component
+
+**Rendering:**
+- Phases displayed as a vertical list in template-defined order
+- Each phase shows: name (editable text input), type badge (read-only), start date picker, end date picker
+- Phase type and order are **read-only** (template-locked)
+- Date pickers use native `<input type="datetime-local" />` (sufficient for V1, no third-party date picker library needed)
+
+**Validation (client-side before save):**
+- Each phase: `endDate > startDate` (per `updatePhaseSchema` refine)
+- Cross-phase: phases should be in chronological order — phase N's `startDate` should be ≥ phase (N-1)'s `startDate`. Show a warning (orange border + message) if violated, but don't block saves (admins may have overlapping phases intentionally).
+- All dates required for publish (validated in Step 8)
+
+**Save behavior:**
+- On step transition, all phases with changed dates are saved via `PATCH /api/hackathons/[id]/phases/[phaseId]`
+- Only phases with dirty fields are sent (tracked via `useForm` dirty state per phase)
+
+---
+
+### 2.11 Step 5: Team Rules (P2.R6)
+
+**File:** `step-team-rules.tsx` — Client component
+
+**Form fields:**
+- **Team minimum size** (number input, default 1, min 1, max 20)
+- **Team maximum size** (number input, default 5, min 1, max 20)
+- **Allow individual participation** (toggle/switch, default true)
+- **Visibility** (select dropdown): `public` (default, functional), `org_only` (shown, disabled with "Coming soon" badge), `invite_only` (shown, disabled with "Coming soon" badge)
+
+**Validation:** `teamMinSize <= teamMaxSize` (from `updateHackathonSchema` refine)
+
+**Save:** All fields saved as a single PATCH to `/api/hackathons/[id]` on step transition.
+
+---
+
+### 2.12 Step 6: Prizes (P2.R7)
+
+**File:** `step-prizes.tsx` — Client component
+
+**UI pattern:** Same as Step 3 (Tracks) — list of cards with inline add/edit, drag-and-drop reordering.
+
+**Prize fields:** name (required), description (optional), rank (auto-assigned from order, editable), image (optional upload via crop modal or direct upload — no crop enforced for prize images, just file type/size validation).
+
+**Preset buttons:** Quick-add buttons for common prizes: "1st Place", "2nd Place", "3rd Place", "Best Innovation", "People's Choice". Clicking a preset adds a prize with that name and auto-incremented rank.
+
+**Prizes are optional.** A hackathon can have zero prizes. No minimum enforced.
+
+**API calls:** Same immediate-save pattern as tracks — `POST`, `PATCH`, `DELETE` per operation.
+
+**Prize image upload:** Uses the same `POST /api/upload/image` route with `imageType: 'prize'` and `prizeId`. Storage path: `hackathons/[id]/prizes/[prizeId].[ext]`. No 16:9 crop — prize images are stored as-is (within 5MB / image type constraints).
+
+---
+
+### 2.13 Step 7: Rules & FAQs (P2.R8)
+
+**File:** `step-rules-faqs.tsx` — Client component
+
+**Layout:** Two Tiptap editors stacked vertically, each with a label and toolbar:
+- **Rules** — "Hackathon Rules" heading
+- **FAQs** — "Frequently Asked Questions" heading
+
+Both are optional. Empty content is saved as `null`.
+
+**Save:** `rulesHtml` and `faqsHtml` saved via PATCH to `/api/hackathons/[id]` on step transition. Tiptap's `editor.getHTML()` provides the HTML string.
+
+---
+
+### 2.14 Tiptap Editor Component (P2.R8)
+
+**File:** `tiptap-editor.tsx` — Client component (shared between Rules and FAQs)
+
+```typescript
+interface TiptapEditorProps {
+  content: string | null;
+  onChange: (html: string) => void;
+  placeholder?: string;
+  className?: string;
+}
+```
+
+**Extensions (from `@tiptap/starter-kit` + `@tiptap/extension-link`):**
+- `StarterKit` (includes: Bold, Italic, Heading, BulletList, OrderedList, History, Paragraph, HardBreak)
+- `Link.configure({ openOnClick: false, HTMLAttributes: { class: 'text-primary underline' } })`
+- Headings restricted to levels 2 and 3 only: `Heading.configure({ levels: [2, 3] })`
+
+**Toolbar buttons:**
+| Button | Action | Icon |
+|--------|--------|------|
+| **B** | Toggle bold | `Bold` (Lucide) |
+| *I* | Toggle italic | `Italic` (Lucide) |
+| H2 | Toggle heading level 2 | `Heading2` (Lucide) |
+| H3 | Toggle heading level 3 | `Heading3` (Lucide) |
+| • | Toggle bullet list | `List` (Lucide) |
+| 1. | Toggle ordered list | `ListOrdered` (Lucide) |
+| 🔗 | Set/unset link (prompt for URL) | `Link` (Lucide) |
+| ↩ | Undo | `Undo` (Lucide) |
+| ↪ | Redo | `Redo` (Lucide) |
+
+**Toolbar styling:**
+- Sticky toolbar at the top of the editor area
+- Buttons styled with `cn('p-2 rounded', isActive && 'bg-muted')` — active state matches the current selection's formatting
+- Separator lines between formatting groups (text, headings, lists, links, history)
+
+**Editor area styling:**
+- `min-h-[200px]` for comfortable editing area
+- `prose prose-sm` Tailwind typography classes for content rendering (requires `@tailwindcss/typography` — add as devDependency if not present)
+- Focus ring: `focus-within:ring-2 focus-within:ring-ring`
+
+**Output:** `editor.getHTML()` — returns clean HTML. Stored directly in `hackathons.rules_html` / `hackathons.faqs_html`.
+
+---
+
+### 2.15 Step 8: Review & Publish (P2.R9)
+
+**File:** `step-review.tsx` — Client component
+
+**Layout:** Read-only summary of all wizard data, organized into sections:
+
+| Section | Data Shown | Edit Link Target |
+|---------|-----------|-----------------|
+| Template | Template name + icon | Step 1 (disabled in edit mode) |
+| Basic Info | Title, description, cover image preview, slug URL | Step 2 |
+| Tracks | Track names + descriptions | Step 3 |
+| Timeline | Phase names + dates | Step 4 |
+| Team Rules | Min/max size, individual toggle, visibility | Step 5 |
+| Prizes | Prize names + ranks | Step 6 |
+| Rules & FAQs | Rendered HTML preview (truncated) | Step 7 |
+
+**Edit links:** Each section has a pencil icon / "Edit" link that calls `setCurrentStep(N)` to navigate back to the relevant step.
+
+**Action buttons:**
+- **"Save as Draft"** — saves current state, redirects to `/dashboard/[orgSlug]/hackathons` with a success toast
+- **"Publish"** — calls `POST /api/hackathons/[id]/publish`. On success: redirects to `/hackathons/[slug]` (the public landing page). On failure: shows error toast with the specific reason (TITLE_REQUIRED, AT_LEAST_ONE_TRACK_REQUIRED, ALL_PHASE_DATES_REQUIRED)
+
+**Publish validation feedback:** Before calling the API, the client performs a pre-check on the local data:
+- Title is not "Untitled Hackathon" and not empty
+- At least one track exists
+- All phases have start and end dates
+
+If any check fails, the relevant section is highlighted with a red border and an inline error message, and the "Publish" button is disabled. The section's "Edit" link is emphasized. This provides immediate feedback without a round-trip.
+
+---
+
+### 2.16 Stale-Data Detection (P2.R16)
+
+**Implementation:**
+- When the wizard loads (create or edit), it stores the hackathon's `updatedAt` timestamp in component state
+- On every save (step transition, Save Draft, Publish), the client sends `{ ...data, expectedUpdatedAt: storedTimestamp }` in the request body
+- The API route compares `expectedUpdatedAt` against the current DB `updatedAt`
+- If they differ, the response includes `{ staleWarning: true, lastUpdatedAt: currentDbTimestamp }`
+- The client shows a non-blocking warning toast: "This hackathon was recently edited by another admin. Your changes have been saved and will overwrite the latest version."
+- The client updates its stored `updatedAt` to the new value from the response
+- **This does NOT block the save** — last-write-wins as per PRD decision #9
+
+---
+
+### 2.17 Resume Draft Flow (P2.R11)
+
+**File:** `src/app/(dashboard)/dashboard/[orgSlug]/hackathons/create/page.tsx` — Server component
+
+**Logic:**
+1. Auth check: `requireOrgRole` with `org_admin`
+2. Fetch templates: `getTemplates()`
+3. Fetch user's existing drafts: `getHackathonsByOrgId({ orgId, status: 'draft' })` — filter to drafts created by the current user
+4. If drafts exist: pass `existingDraft` prop to `WizardShell`
+5. WizardShell shows a resume dialog on mount if `existingDraft` is present
+
+**Determining the furthest completed step:**
+```typescript
+function getFurthestStep(hackathon: HackathonWithRelations): number {
+  const { hackathon: h, phases, tracks } = hackathon;
+  if (h.rulesHtml || h.faqsHtml) return 8;                    // Rules/FAQs set → show Review
+  if (prizes.length > 0) return 7;                              // Prizes added → show Rules
+  if (h.teamMinSize !== 1 || h.teamMaxSize !== 5) return 6;   // Team rules changed → show Prizes
+  const allPhaseDates = phases.every(p => p.startDate && p.endDate);
+  if (allPhaseDates) return 5;                                  // Phase dates set → show Team Rules
+  if (tracks.length > 0) return 4;                              // Tracks added → show Timeline
+  if (h.title !== 'Untitled Hackathon') return 3;              // Title set → show Tracks
+  return 2;                                                     // Template selected → show Basic Info
+}
+```
+
+---
+
+### 2.18 Permissions (P2.R12)
+
+All wizard pages and API routes enforce:
+
+| Check | Implementation | Failure Response |
+|-------|---------------|-----------------|
+| Authenticated | `requireOrgRole()` calls `auth()` | 401 → redirect to `/login` |
+| Email verified | `requireOrgRole()` checks `isEmailVerified` | 403 |
+| Org membership | `requireOrgRole()` queries `org_memberships` | 403 |
+| `org_admin` role | `requireOrgRole({ allowedRoles: ['org_admin'] })` | 403 |
+| Hackathon ownership | Service layer checks `hackathon.orgId === user's orgId` | 404 (not 403 — don't leak existence) |
+
+**`member` role:** Can view the hackathon list page but sees no "Create Hackathon" button and cannot access `/hackathons/create` (server component redirects to the hackathon list with a toast).
+
+---
+
+### 2.19 New Utility: Hackathon Service Extensions
+
+The following methods are added to `src/lib/services/hackathon-service.ts` during Part 2 implementation:
+
+```typescript
+// Get drafts by user (for resume-draft flow)
+export async function getDraftsByUser(params: {
+  orgId: string;
+  userId: string;
+}): Promise<Hackathon[]>
+
+// Reorder tracks (batch update order values)
+export async function reorderTracks(params: {
+  hackathonId: string;
+  orgId: string;
+  trackIds: string[];     // ordered array of track IDs
+}): Promise<{ success: boolean; error?: string }>
+
+// Reorder prizes (batch update rank values)
+export async function reorderPrizes(params: {
+  hackathonId: string;
+  orgId: string;
+  prizeIds: string[];     // ordered array of prize IDs
+}): Promise<{ success: boolean; error?: string }>
+```
+
+These methods follow the same patterns as existing service functions: console.log at entry/exit, org scoping, error handling with typed returns.
+
+---
+
+### 2.20 Implementation Increments
+
+Part 2 is implemented in 5 increments. Each is a self-contained, pushable commit.
+
+#### Increment 1: API Routes (All 11 routes)
+
+**What:** Create all API route handlers for hackathon CRUD, track/phase/prize management, publish, and image upload.
+
+**Files created:**
+- `src/app/api/hackathons/route.ts`
+- `src/app/api/hackathons/[hackathonId]/route.ts`
+- `src/app/api/hackathons/[hackathonId]/publish/route.ts`
+- `src/app/api/hackathons/[hackathonId]/tracks/route.ts`
+- `src/app/api/hackathons/[hackathonId]/tracks/[trackId]/route.ts`
+- `src/app/api/hackathons/[hackathonId]/phases/[phaseId]/route.ts`
+- `src/app/api/hackathons/[hackathonId]/prizes/route.ts`
+- `src/app/api/hackathons/[hackathonId]/prizes/[prizeId]/route.ts`
+- `src/app/api/upload/image/route.ts`
+
+**Files modified:**
+- `src/lib/services/hackathon-service.ts` — add `getDraftsByUser()`, `reorderTracks()`, `reorderPrizes()`
+
+**Verify:**
+- `npx tsc --noEmit` passes
+- Manual test: create a hackathon via `POST /api/hackathons` with a valid template ID and org
+
+#### Increment 2: Wizard Shell + Step 1 (Template Selection)
+
+**What:** Build the wizard page, shell component with step indicator and navigation, and the template selection step.
+
+**Files created:**
+- `src/app/(dashboard)/dashboard/[orgSlug]/hackathons/create/page.tsx`
+- `src/app/(dashboard)/dashboard/[orgSlug]/hackathons/create/_components/wizard-shell.tsx`
+- `src/app/(dashboard)/dashboard/[orgSlug]/hackathons/create/_components/step-template.tsx`
+
+**Verify:**
+- Navigate to `/dashboard/[orgSlug]/hackathons/create`
+- 4 template cards render from DB
+- Selecting a template creates a draft and advances to Step 2
+- Step indicator shows Step 1 as completed
+
+#### Increment 3: Steps 2–5 (Basic Info, Tracks, Timeline, Team Rules)
+
+**What:** Build the data-entry steps including image upload with crop modal, track management with drag-and-drop, timeline phase editing, and team configuration.
+
+**Files created:**
+- `src/app/(dashboard)/dashboard/[orgSlug]/hackathons/create/_components/step-basic-info.tsx`
+- `src/app/(dashboard)/dashboard/[orgSlug]/hackathons/create/_components/step-tracks.tsx`
+- `src/app/(dashboard)/dashboard/[orgSlug]/hackathons/create/_components/step-timeline.tsx`
+- `src/app/(dashboard)/dashboard/[orgSlug]/hackathons/create/_components/step-team-rules.tsx`
+- `src/app/(dashboard)/dashboard/[orgSlug]/hackathons/create/_components/image-crop-modal.tsx`
+
+**Dependencies installed:** `react-cropper`, `cropperjs`, `@hello-pangea/dnd`
+
+**Verify:**
+- Step 2: title auto-generates slug, cover image upload with 16:9 crop works
+- Step 3: add/edit/remove/reorder tracks, at least one visible
+- Step 4: phase dates set, validation catches end < start
+- Step 5: team size config, visibility dropdown shows "coming soon" for non-public options
+- Auto-save triggers on every step transition with visual indicator
+
+#### Increment 4: Steps 6–8 (Prizes, Rules/FAQs, Review)
+
+**What:** Build prize management, Tiptap rich text editors, and the review/publish step.
+
+**Files created:**
+- `src/app/(dashboard)/dashboard/[orgSlug]/hackathons/create/_components/step-prizes.tsx`
+- `src/app/(dashboard)/dashboard/[orgSlug]/hackathons/create/_components/step-rules-faqs.tsx`
+- `src/app/(dashboard)/dashboard/[orgSlug]/hackathons/create/_components/step-review.tsx`
+- `src/app/(dashboard)/dashboard/[orgSlug]/hackathons/create/_components/tiptap-editor.tsx`
+
+**Dependencies installed:** `@tiptap/react`, `@tiptap/starter-kit`, `@tiptap/extension-link`, `@tiptap/pm`
+
+**Verify:**
+- Step 6: add/edit/remove/reorder prizes, preset buttons work, optional image upload
+- Step 7: both Tiptap editors render with toolbar, formatting works (bold, italic, headings, lists, links)
+- Step 8: review shows all data, edit links navigate back, "Save as Draft" returns to list, "Publish" validates and redirects to landing page
+- Full wizard flow: template → basic info → tracks → timeline → team rules → prizes → rules → publish
+
+#### Increment 5: Edit Mode + Resume Draft
+
+**What:** Build the edit wizard route and the resume-draft flow for the create page.
+
+**Files created:**
+- `src/app/(dashboard)/dashboard/[orgSlug]/hackathons/[hackathonId]/edit/page.tsx`
+
+**Files modified:**
+- `src/app/(dashboard)/dashboard/[orgSlug]/hackathons/create/page.tsx` — add draft detection and resume dialog
+- `src/app/(dashboard)/dashboard/[orgSlug]/hackathons/create/_components/wizard-shell.tsx` — add edit mode support (pre-fill, lock template step)
+
+**Verify:**
+- Creating a draft, closing browser, navigating back to `/create` shows resume dialog
+- Editing a published hackathon pre-fills all fields, template and phase structure are locked
+- Stale-data warning shows when another admin has edited the hackathon
+
+---
+
+### 2.21 Files Changed Summary
+
+| File | Action | Requirement |
+|------|--------|-------------|
+| `src/app/api/hackathons/route.ts` | Created | P2.R13 |
+| `src/app/api/hackathons/[hackathonId]/route.ts` | Created | P2.R13 |
+| `src/app/api/hackathons/[hackathonId]/publish/route.ts` | Created | P2.R13 |
+| `src/app/api/hackathons/[hackathonId]/tracks/route.ts` | Created | P2.R13 |
+| `src/app/api/hackathons/[hackathonId]/tracks/[trackId]/route.ts` | Created | P2.R13 |
+| `src/app/api/hackathons/[hackathonId]/phases/[phaseId]/route.ts` | Created | P2.R13 |
+| `src/app/api/hackathons/[hackathonId]/prizes/route.ts` | Created | P2.R13 |
+| `src/app/api/hackathons/[hackathonId]/prizes/[prizeId]/route.ts` | Created | P2.R13 |
+| `src/app/api/upload/image/route.ts` | Created | P2.R13 |
+| `src/lib/services/hackathon-service.ts` | Modified | P2.R11 |
+| `src/app/(dashboard)/dashboard/[orgSlug]/hackathons/create/page.tsx` | Created | P2.R1, P2.R11, P2.R12 |
+| `...create/_components/wizard-shell.tsx` | Created | P2.R1, P2.R10, P2.R15, P2.R16 |
+| `...create/_components/step-template.tsx` | Created | P2.R2 |
+| `...create/_components/step-basic-info.tsx` | Created | P2.R3 |
+| `...create/_components/step-tracks.tsx` | Created | P2.R4 |
+| `...create/_components/step-timeline.tsx` | Created | P2.R5 |
+| `...create/_components/step-team-rules.tsx` | Created | P2.R6 |
+| `...create/_components/step-prizes.tsx` | Created | P2.R7 |
+| `...create/_components/step-rules-faqs.tsx` | Created | P2.R8 |
+| `...create/_components/step-review.tsx` | Created | P2.R9 |
+| `...create/_components/image-crop-modal.tsx` | Created | P2.R3 |
+| `...create/_components/tiptap-editor.tsx` | Created | P2.R8 |
+| `src/app/(dashboard)/dashboard/[orgSlug]/hackathons/[hackathonId]/edit/page.tsx` | Created | P2.R11 |
+| `package.json` | Modified | Dependencies |
+
+---
+
+### 2.22 Dependencies (New for Phase 2 — Full List)
+
+| Package | Version | Type | Added In |
+|---------|---------|------|----------|
+| `@supabase/supabase-js` | ^2.x | dependency | Part 1 |
+| `tsx` | ^4.x | devDependency | Part 1 |
+| `@tiptap/react` | ^2.x | dependency | Part 2 |
+| `@tiptap/starter-kit` | ^2.x | dependency | Part 2 |
+| `@tiptap/extension-link` | ^2.x | dependency | Part 2 |
+| `@tiptap/pm` | ^2.x | dependency | Part 2 |
+| `react-cropper` | ^2.x | dependency | Part 2 |
+| `cropperjs` | ^1.x | dependency | Part 2 |
+| `@hello-pangea/dnd` | ^16.x | dependency | Part 2 |
+| `@tailwindcss/typography` | ^0.5.x | devDependency | Part 2 (if not already installed) |
+
+---
+
+*Part 2 complete. Parts 3–4 will be written after Part 2 is approved and implemented.*
