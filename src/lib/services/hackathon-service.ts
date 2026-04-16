@@ -448,11 +448,20 @@ export async function publishHackathon(params: {
 // Transition Hackathon Status
 // ---------------------------------------------------------------------------
 
-const VALID_TRANSITIONS: Record<string, string[]> = {
+/**
+ * Manual transitions allowed for admins.
+ *
+ * Only two manual transitions exist:
+ * - draft → published (requires validation — delegates to publishHackathon())
+ * - completed → archived (simple status flip)
+ *
+ * All other transitions (published→active, active→judging, judging→completed)
+ * are date-driven and handled automatically by the check-on-access lifecycle
+ * engine in hackathon-lifecycle.ts. Admins who want to influence timing should
+ * edit the hackathon's phase dates instead.
+ */
+const MANUAL_TRANSITIONS: Record<string, string[]> = {
   draft: ['published'],
-  published: ['active'],
-  active: ['judging'],
-  judging: ['completed'],
   completed: ['archived'],
 };
 
@@ -475,11 +484,11 @@ export async function transitionHackathonStatus(params: {
     return { success: false, error: 'HACKATHON_NOT_FOUND' };
   }
 
-  const allowed = VALID_TRANSITIONS[hackathon.status] || [];
+  const allowed = MANUAL_TRANSITIONS[hackathon.status] || [];
   if (!allowed.includes(params.targetStatus)) {
     return {
       success: false,
-      error: `Cannot transition from '${hackathon.status}' to '${params.targetStatus}'`,
+      error: `Cannot manually transition from '${hackathon.status}' to '${params.targetStatus}'. Status transitions between published, active, judging, and completed are date-driven.`,
     };
   }
 

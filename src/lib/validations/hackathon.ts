@@ -111,16 +111,13 @@ export const publishHackathonSchema = z.object({
 export type PublishHackathonInput = z.infer<typeof publishHackathonSchema>;
 
 // ---------------------------------------------------------------------------
-// Status transition
+// Status transition (manual only — date-driven transitions are automatic)
 // ---------------------------------------------------------------------------
 
 export const transitionStatusSchema = z.object({
   targetStatus: z.enum([
-    'published',
-    'active',
-    'judging',
-    'completed',
-    'archived',
+    'published',  // draft → published (requires publish validation)
+    'archived',   // completed → archived
   ]),
 });
 

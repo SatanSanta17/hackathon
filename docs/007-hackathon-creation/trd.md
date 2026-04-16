@@ -2583,10 +2583,14 @@ import { transitionHackathonStatus } from '@/lib/services/hackathon-service';
 /**
  * POST /api/hackathons/[hackathonId]/transition — Manually transition hackathon status
  *
- * Body: { orgId: string, targetStatus: string }
+ * Body: { orgId: string, targetStatus: 'published' | 'archived' }
  *
- * Valid transitions: draft→published, published→active, active→judging,
- *                    judging→completed, completed→archived
+ * Only two manual transitions are allowed:
+ *   - draft → published (delegates to publishHackathon() for validation)
+ *   - completed → archived
+ *
+ * Middle-state transitions (published→active, active→judging, judging→completed)
+ * are date-driven via check-on-access and cannot be triggered manually.
  */
 export async function POST(
   request: Request,
@@ -2903,12 +2907,13 @@ const STATUS_BADGE_VARIANT: Record<string, 'default' | 'secondary' | 'destructiv
   archived: 'outline',
 };
 
-/** Valid forward transitions for the context menu */
-const NEXT_TRANSITION: Record<string, { label: string; target: string } | undefined> = {
+/**
+ * Manual transitions only — middle states (published→active, active→judging,
+ * judging→completed) are date-driven via check-on-access. Admins who want to
+ * influence timing should edit the hackathon's phase dates.
+ */
+const MANUAL_TRANSITIONS: Record<string, { label: string; target: string } | undefined> = {
   draft: { label: 'Publish', target: 'published' },
-  published: { label: 'Start (Activate)', target: 'active' },
-  active: { label: 'Move to Judging', target: 'judging' },
-  judging: { label: 'Mark Completed', target: 'completed' },
   completed: { label: 'Archive', target: 'archived' },
 };
 
@@ -2939,10 +2944,11 @@ The `HackathonList` component contains:
 |--------|-----------|----------|
 | Edit | Always (admin) | Navigate to `/dashboard/[orgSlug]/hackathons/[hackathonId]/edit` |
 | View Landing Page | Status is not `draft` | Open `/hackathons/[slug]` in new tab |
-| Publish | Status is `draft` | Call `POST /api/hackathons/[id]/publish` → refresh |
-| Next Transition | Status has a valid forward transition | Call `POST /api/hackathons/[id]/transition` → refresh |
+| Publish | Status is `draft` | Call `POST /api/hackathons/[id]/transition` with `targetStatus: 'published'` → refresh |
 | Archive | Status is `completed` | Call `POST /api/hackathons/[id]/transition` with `targetStatus: 'archived'` → refresh |
 | Delete | Status is `draft` | Show AlertDialog confirmation → Call `POST /api/hackathons/[id]/delete` → refresh |
+
+**Note:** Middle-state transitions (published→active, active→judging, judging→completed) are **not** shown in the context menu. These are date-driven and handled automatically by the check-on-access lifecycle engine. Admins who want to influence timing should edit the hackathon's phase dates via the Edit action.
 
 **Filtering logic (client-side, P3.R2 – P3.R4):**
 
