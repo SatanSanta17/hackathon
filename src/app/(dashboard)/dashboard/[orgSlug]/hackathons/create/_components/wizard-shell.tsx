@@ -8,6 +8,10 @@ import { Check, Circle, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { StepTemplate } from './step-template';
+import { StepBasicInfo } from './step-basic-info';
+import { StepTracks } from './step-tracks';
+import { StepTimeline } from './step-timeline';
+import { StepTeamRules } from './step-team-rules';
 import type {
   Hackathon,
   HackathonWithRelations,
@@ -173,6 +177,26 @@ export function WizardShell({
   // Render step content
   // ---------------------------------------------------------------------------
 
+  // ---------------------------------------------------------------------------
+  // Data update handlers (passed to step components)
+  // ---------------------------------------------------------------------------
+
+  const handleHackathonSave = useCallback((data: Partial<Hackathon>) => {
+    setHackathonData((prev) => ({ ...prev, ...data }));
+  }, []);
+
+  const handleTracksChange = useCallback((newTracks: Track[]) => {
+    setTracksData(newTracks);
+  }, []);
+
+  const handlePhasesChange = useCallback((newPhases: Phase[]) => {
+    setPhasesData(newPhases);
+  }, []);
+
+  // ---------------------------------------------------------------------------
+  // Render step content
+  // ---------------------------------------------------------------------------
+
   const renderStepContent = () => {
     switch (currentStep) {
       case 1:
@@ -183,16 +207,51 @@ export function WizardShell({
           />
         );
       case 2:
+        return hackathonId ? (
+          <StepBasicInfo
+            hackathonId={hackathonId}
+            orgId={orgId}
+            initialData={hackathonData}
+            onSave={handleHackathonSave}
+            onNext={handleNext}
+          />
+        ) : null;
       case 3:
+        return hackathonId ? (
+          <StepTracks
+            hackathonId={hackathonId}
+            orgId={orgId}
+            initialTracks={tracksData}
+            onTracksChange={handleTracksChange}
+          />
+        ) : null;
       case 4:
+        return hackathonId ? (
+          <StepTimeline
+            hackathonId={hackathonId}
+            orgId={orgId}
+            initialPhases={phasesData}
+            onPhasesChange={handlePhasesChange}
+            onSave={handleNext}
+          />
+        ) : null;
       case 5:
+        return hackathonId ? (
+          <StepTeamRules
+            hackathonId={hackathonId}
+            orgId={orgId}
+            initialData={hackathonData}
+            onSave={handleHackathonSave}
+            onNext={handleNext}
+          />
+        ) : null;
       case 6:
       case 7:
       case 8:
         return (
           <div className="flex flex-col items-center justify-center py-16 text-center">
             <p className="text-muted-foreground">
-              Step {currentStep}: {STEPS[currentStep - 1].name} — coming in Increment {currentStep <= 5 ? 3 : 4}.
+              Step {currentStep}: {STEPS[currentStep - 1].name} — coming in Increment 4.
             </p>
           </div>
         );
@@ -288,7 +347,7 @@ export function WizardShell({
         {/* Step content */}
         <div className="flex-1">{renderStepContent()}</div>
 
-        {/* Navigation footer */}
+        {/* Navigation footer — hidden for steps that have their own Save & Continue */}
         {currentStep > 1 && (
           <div className="mt-6 flex items-center justify-between border-t pt-4">
             <Button variant="outline" onClick={handleBack}>
@@ -298,11 +357,11 @@ export function WizardShell({
               <Button variant="ghost" onClick={handleSaveDraft}>
                 Save Draft
               </Button>
-              {currentStep < 8 ? (
+              {/* Steps 2, 4, 5 have their own Save & Continue — only show Next for 3, 6, 7 */}
+              {![2, 4, 5].includes(currentStep) && currentStep < 8 && (
                 <Button onClick={handleNext}>Next</Button>
-              ) : (
-                <Button>Publish</Button>
               )}
+              {currentStep === 8 && <Button>Publish</Button>}
             </div>
           </div>
         )}
