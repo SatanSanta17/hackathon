@@ -574,4 +574,943 @@ Part 1 is implemented in 3 increments. Each increment is a self-contained, pusha
 
 ---
 
-*Part 2 (Authentication) and Part 3 (Org Management + App Shell + Admin Panel) TRDs will be written after Part 1 implementation is complete, per the workflow convention of writing TRD parts one at a time.*
+## Part 2: Authentication
+
+**PRD Requirements Covered:** P2.R1 through P2.R12
+
+---
+
+### 2.1 Dependencies (New for Part 2)
+
+```bash
+npm install next-auth@beta bcryptjs resend
+npm install -D @types/bcryptjs
+```
+
+- **next-auth@beta** — NextAuth.js v5 (Auth.js). The beta tag is the v5 release line for Next.js App Router.
+- **bcryptjs** — Pure JS bcrypt implementation (no native deps, works on Vercel serverless). Cost factor 12.
+- **resend** — Email sending SDK.
+- **@types/bcryptjs** — TypeScript types for bcryptjs.
+
+---
+
+### 2.2 NextAuth.js v5 Configuration (P2.R1, P2.R9)
+
+#### `src/lib/auth/auth.ts` — Core auth configuration
+
+```typescript
+import NextAuth from 'next-auth';
+import Credentials from 'next-auth/providers/credentials';
+import bcrypt from 'bcryptjs';
+import { eq } from 'drizzle-orm';
+
+import { db } from '@/db';
+import { users } from '@/db/schema';
+import { loginSchema } from '@/lib/validations/auth';
+
+export const { handlers, signIn, signOut, auth } = NextAuth({
+  providers: [
+    Credentials({
+      credentials: {
+        email: {},
+        password: {},
+      },
+      authorize: async (credentials) => {
+        const parsed = loginSchema.safeParse(credentials);
+        if (!parsed.success) return null;
+
+        const { email, password } = parsed.data;
+
+        const user = await db.query.users.findFirst({
+          where: eq(users.email, email.toLowerCase()),
+        });
+
+        if (!user || user.deletedAt) return null;
+
+        const passwordMatch = await bcrypt.compare(password, user.passwordHash);
+        if (!passwordMatch) return null;
+
+        // Return user object — this is passed to jwt callback
+        return {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          platformRole: user.platformRole,
+          emailVerified: user.emailVerified,
+        };
+      },
+    }),
+  ],
+  session: { strategy: 'jwt' },
+  pages: {
+    signIn: '/login',
+  },
+  callbacks: {
+    jwt({ token, user }) {
+      // On initial sign-in, user object is populated
+      if (user) {
+        token.userId = user.id;
+        token.email = user.email;
+        token.name = user.name;
+        token.platformRole = user.platformRole;
+        token.emailVerified = user.emailVerified;
+      }
+      return token;
+    },
+    session({ session, token }) {
+      session.user.id = token.userId as string;
+      session.user.platformRole = token.platformRole as string;
+      session.user.emailVerified = token.emailVerified as boolean;
+      return session;
+    },
+  },
+});
+```
+
+**Key decisions:**
+- `authorize` performs email lookup + bcrypt compare. Returns null for invalid credentials (NextAuth translates to error).
+- Soft-deleted users (`deletedAt` not null) are treated as non-existent.
+- Unverified users ARE allowed to log in (Option B). `emailVerified` is included in the JWT so downstream checks can gate actions.
+- Email is lowercased before lookup to ensure case-insensitive matching.
+
+#### `src/lib/auth/types.ts` — NextAuth type extensions
+
+```typescript
+import 'next-auth';
+import 'next-auth/jwt';
+
+declare module 'next-auth' {
+  interface User {
+    platformRole?: string;
+    emailVerified?: boolean;
+  }
+  interface Session {
+    user: {
+      id: string;
+      email: string;
+      name: string;
+      platformRole: string;
+      emailVerified: boolean;
+    };
+  }
+}
+
+declare module 'next-auth/jwt' {
+  interface JWT {
+    userId?: string;
+    platformRole?: string;
+    emailVerified?: boolean;
+  }
+}
+```
+
+#### `src/app/api/auth/[...nextauth]/route.ts` — API route handler
+
+```typescript
+import { handlers } from '@/lib/auth/auth';
+
+export const { GET, POST } = handlers;
+```
+
+---
+
+### 2.3 Zod Validation Schemas (P2.R2)
+
+#### `src/lib/validations/auth.ts`
+
+```typescript
+import { z } from 'zod';
+
+export const signUpSchema = z.object({
+  name: z.string().min(1, 'Name is required').max(100, 'Name must be under 100 characters'),
+  email: z.string().email('Invalid email address'),
+  password: z
+    .string()
+    .min(8, 'Password must be at least 8 characters')
+    .regex(/[A-Z]/, 'Password must contain at least one uppercase letter')
+    .regex(/[a-z]/, 'Password must contain at least one lowercase letter')
+    .regex(/[0-9]/, 'Password must contain at least one number'),
+});
+
+export const loginSchema = z.object({
+  email: z.string().email('Invalid email address'),
+  password: z.string().min(1, 'Password is required'),
+});
+
+export const forgotPasswordSchema = z.object({
+  email: z.string().email('Invalid email address'),
+});
+
+export const resetPasswordSchema = z.object({
+  token: z.string().min(1, 'Token is required'),
+  password: z
+    .string()
+    .min(8, 'Password must be at least 8 characters')
+    .regex(/[A-Z]/, 'Password must contain at least one uppercase letter')
+    .regex(/[a-z]/, 'Password must contain at least one lowercase letter')
+    .regex(/[0-9]/, 'Password must contain at least one number'),
+});
+
+export type SignUpInput = z.infer<typeof signUpSchema>;
+export type LoginInput = z.infer<typeof loginSchema>;
+export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
+export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
+```
+
+---
+
+### 2.4 Email Service — Provider-Agnostic Architecture (P2.R3, P2.R7)
+
+The email service uses a **provider-agnostic interface + adapter pattern**. All application code (auth service, future notification service, etc.) depends on the `EmailService` interface, never on Resend directly. Swapping to SendGrid, AWS SES, or any other provider means writing a new adapter — zero changes to business logic.
+
+#### `src/lib/email/types.ts` — Email service interface and types
+
+```typescript
+export interface SendEmailParams {
+  to: string;
+  subject: string;
+  html: string;
+  text: string;
+}
+
+export interface SendEmailResult {
+  success: boolean;
+  messageId?: string;
+  error?: string;
+}
+
+export interface EmailService {
+  send(params: SendEmailParams): Promise<SendEmailResult>;
+}
+```
+
+The `EmailService` interface is the contract. Every adapter implements `send()`. Application code imports `EmailService`, never a concrete adapter.
+
+#### `src/lib/email/adapters/resend-adapter.ts` — Resend implementation
+
+```typescript
+import { Resend } from 'resend';
+import type { EmailService, SendEmailParams, SendEmailResult } from '../types';
+
+export class ResendEmailAdapter implements EmailService {
+  private client: Resend;
+  private fromEmail: string;
+
+  constructor(apiKey: string, fromEmail: string) {
+    this.client = new Resend(apiKey);
+    this.fromEmail = fromEmail;
+  }
+
+  async send(params: SendEmailParams): Promise<SendEmailResult> {
+    try {
+      const { data, error } = await this.client.emails.send({
+        from: this.fromEmail,
+        to: params.to,
+        subject: params.subject,
+        html: params.html,
+        text: params.text,
+      });
+
+      if (error) {
+        console.error('[email] Resend error:', error);
+        return { success: false, error: error.message };
+      }
+
+      console.log('[email] Sent successfully:', { to: params.to, messageId: data?.id });
+      return { success: true, messageId: data?.id };
+    } catch (err) {
+      console.error('[email] Unexpected error:', err);
+      return { success: false, error: err instanceof Error ? err.message : 'Unknown error' };
+    }
+  }
+}
+```
+
+**Key decisions:**
+- Constructor takes `apiKey` and `fromEmail` as parameters (not read from env inside the class) — makes it testable and explicit.
+- Never throws — returns a result object. Callers decide how to handle failures.
+- Logs on success and error per coding conventions.
+
+#### `src/lib/email/index.ts` — Email service factory (singleton)
+
+```typescript
+import type { EmailService } from './types';
+import { ResendEmailAdapter } from './adapters/resend-adapter';
+
+let emailService: EmailService | null = null;
+
+export function getEmailService(): EmailService {
+  if (!emailService) {
+    // Current provider: Resend
+    // To swap providers, replace this with a different adapter:
+    //   emailService = new SendGridAdapter(process.env.SENDGRID_API_KEY!, ...);
+    emailService = new ResendEmailAdapter(
+      process.env.RESEND_API_KEY!,
+      process.env.FROM_EMAIL!,
+    );
+  }
+  return emailService;
+}
+
+// Re-export types for convenience
+export type { EmailService, SendEmailParams, SendEmailResult } from './types';
+```
+
+**How application code uses it:**
+
+```typescript
+import { getEmailService } from '@/lib/email';
+import { verificationEmail } from '@/lib/email/templates';
+
+const email = getEmailService();
+const template = verificationEmail({ name: 'Alice', verifyUrl: '...' });
+const result = await email.send({ to: 'alice@example.com', ...template });
+```
+
+**To swap providers:** Create a new adapter (e.g., `src/lib/email/adapters/sendgrid-adapter.ts`), implement `EmailService`, and change the factory in `index.ts`. No other files change.
+
+#### `src/lib/email/templates.ts` — Email template functions
+
+Plain text + HTML emails. No React Email dependency in V1 — keeps it simple. Templates are functions that return `{ subject, html, text }`.
+
+```typescript
+export function verificationEmail(params: { name: string; verifyUrl: string }): { subject: string; html: string; text: string };
+export function passwordResetEmail(params: { name: string; resetUrl: string }): { subject: string; html: string; text: string };
+```
+
+Each template returns a styled HTML email with HackForge branding and a clear CTA button, plus a plain-text fallback. Templates are provider-agnostic — they produce raw HTML/text, not Resend-specific objects.
+
+---
+
+### 2.5 Auth Constants (Single Source of Truth)
+
+#### `src/lib/auth/constants.ts`
+
+All magic numbers and configurable auth values live here. Every file that needs an expiry time, cost factor, or label imports from this file — never hardcodes its own.
+
+```typescript
+export const AUTH_CONSTANTS = {
+  /** bcrypt cost factor for password hashing */
+  BCRYPT_COST: 12,
+
+  /** Email verification token expiry in minutes */
+  EMAIL_VERIFICATION_EXPIRY_MINUTES: 1440, // 24 hours
+
+  /** Password reset token expiry in minutes */
+  PASSWORD_RESET_EXPIRY_MINUTES: 60, // 1 hour
+
+  /** Org invite expiry in days */
+  ORG_INVITE_EXPIRY_DAYS: 7,
+} as const;
+
+/** Human-readable expiry labels — derived from the constants above.
+ *  Used in email templates, UI messages, and error responses.
+ *  If you change the expiry durations, these update automatically. */
+export const AUTH_EXPIRY_LABELS = {
+  emailVerification: formatExpiry(AUTH_CONSTANTS.EMAIL_VERIFICATION_EXPIRY_MINUTES),
+  passwordReset: formatExpiry(AUTH_CONSTANTS.PASSWORD_RESET_EXPIRY_MINUTES),
+} as const;
+
+function formatExpiry(minutes: number): string {
+  if (minutes >= 1440 && minutes % 1440 === 0) return `${minutes / 1440} day(s)`;
+  if (minutes >= 60 && minutes % 60 === 0) return `${minutes / 60} hour(s)`;
+  return `${minutes} minute(s)`;
+}
+```
+
+**How it's consumed:**
+
+- **Token service** — `createToken({ ..., expiresInMinutes: AUTH_CONSTANTS.EMAIL_VERIFICATION_EXPIRY_MINUTES })`
+- **Auth service** — `AUTH_CONSTANTS.BCRYPT_COST` for password hashing
+- **Email templates** — `AUTH_EXPIRY_LABELS.passwordReset` to render "This link expires in 1 hour(s)" in the email body
+- **Error responses** — "Your token has expired. Verification links are valid for ${AUTH_EXPIRY_LABELS.emailVerification}."
+
+One change in `constants.ts` → every token, template, and message updates. No grep-and-replace needed.
+
+---
+
+### 2.6 Token Service (P2.R3, P2.R7, P2.R12)
+
+#### `src/lib/services/token-service.ts`
+
+Handles creation and validation of verification/reset tokens.
+
+```typescript
+import crypto from 'crypto';
+import bcrypt from 'bcryptjs';
+import { eq, and, isNull } from 'drizzle-orm';
+
+import { db } from '@/db';
+import { verificationTokens } from '@/db/schema';
+
+// Generate a secure random token, store its hash in DB
+export async function createToken(params: {
+  userId: string;
+  type: 'email_verification' | 'password_reset';
+  expiresInMinutes: number;
+}): Promise<string>;  // returns the raw token (sent via email)
+
+// Validate a raw token against the DB hash
+export async function validateToken(params: {
+  rawToken: string;
+  type: 'email_verification' | 'password_reset';
+}): Promise<{ valid: boolean; userId?: string; tokenId?: string }>;
+
+// Mark a token as used
+export async function markTokenUsed(tokenId: string): Promise<void>;
+
+// Invalidate all unused tokens for a user+type (e.g., on new request)
+export async function invalidateTokens(params: {
+  userId: string;
+  type: 'email_verification' | 'password_reset';
+}): Promise<void>;
+```
+
+**Token security model:**
+1. `crypto.randomBytes(32)` generates a 32-byte random token.
+2. The raw token is encoded as hex and sent to the user via email URL.
+3. A SHA-256 hash of the raw token is stored in `verification_tokens.token`.
+4. On validation, the submitted raw token is hashed and compared against stored hashes.
+5. SHA-256 (not bcrypt) is used for tokens because tokens are high-entropy random strings — dictionary attacks don't apply, and SHA-256 is fast for comparison.
+
+**Expiry (from `AUTH_CONSTANTS`):**
+- Email verification tokens: `AUTH_CONSTANTS.EMAIL_VERIFICATION_EXPIRY_MINUTES` (default: 1440 = 24 hours).
+- Password reset tokens: `AUTH_CONSTANTS.PASSWORD_RESET_EXPIRY_MINUTES` (default: 60 = 1 hour).
+- Change once in `src/lib/auth/constants.ts` — token creation, email templates, and UI messages all reflect the new value.
+
+---
+
+### 2.7 Auth Service (P2.R2, P2.R3, P2.R6, P2.R7, P2.R8)
+
+#### `src/lib/services/auth-service.ts`
+
+Business logic for auth operations. Framework-agnostic (no Next.js imports).
+
+```typescript
+import bcrypt from 'bcryptjs';
+import { eq } from 'drizzle-orm';
+
+import { db } from '@/db';
+import { users } from '@/db/schema';
+import { createToken, validateToken, markTokenUsed, invalidateTokens } from './token-service';
+import { getEmailService } from '@/lib/email';
+import { verificationEmail, passwordResetEmail } from '@/lib/email/templates';
+import { AUTH_CONSTANTS } from '@/lib/auth/constants';
+
+export async function signUp(params: {
+  name: string;
+  email: string;
+  password: string;
+}): Promise<{ success: boolean; error?: string }>;
+// 1. Check if email already exists → return error if so
+// 2. Hash password with bcrypt (cost 12)
+// 3. Insert user record
+// 4. Create email verification token
+// 5. Send verification email
+// 6. Return success
+
+export async function verifyEmail(params: {
+  token: string;
+}): Promise<{ success: boolean; error?: string }>;
+// 1. Validate token (type: email_verification)
+// 2. If valid, set user.emailVerified = true
+// 3. Mark token as used
+// 4. Return success
+
+export async function requestPasswordReset(params: {
+  email: string;
+}): Promise<{ success: boolean }>;
+// 1. Find user by email
+// 2. If user exists, invalidate old tokens and create new one
+// 3. Send password reset email
+// 4. Always return success (prevent email enumeration)
+
+export async function resetPassword(params: {
+  token: string;
+  newPassword: string;
+}): Promise<{ success: boolean; error?: string }>;
+// 1. Validate token (type: password_reset)
+// 2. Hash new password
+// 3. Update user.passwordHash
+// 4. Mark token as used
+// 5. Invalidate all other reset tokens for this user
+// 6. Return success
+
+export async function resendVerificationEmail(params: {
+  userId: string;
+}): Promise<{ success: boolean; error?: string }>;
+// 1. Find user by ID
+// 2. If already verified, return error
+// 3. Invalidate old verification tokens
+// 4. Create new token and send email
+// 5. Return success
+```
+
+**Key decisions:**
+- `requestPasswordReset` always returns success even if the email doesn't exist. This prevents email enumeration attacks.
+- `signUp` checks for existing email case-insensitively.
+- All operations log entry, exit, and errors per coding conventions.
+
+---
+
+### 2.8 API Routes (P2.R2, P2.R3, P2.R6, P2.R7, P2.R8)
+
+All routes validate input with Zod, call service functions, and return appropriate HTTP status codes.
+
+#### `src/app/api/auth/signup/route.ts` — POST
+
+```
+Request:  { name, email, password }
+Validate: signUpSchema
+Call:     authService.signUp()
+Success:  201 { message: "Account created. Check your email to verify." }
+Error:    400 (validation) | 409 (email exists) | 500 (server error)
+```
+
+#### `src/app/api/auth/verify-email/route.ts` — POST
+
+```
+Request:  { token }
+Call:     authService.verifyEmail()
+Success:  200 { message: "Email verified successfully." }
+Error:    400 (invalid/expired token) | 500
+```
+
+#### `src/app/api/auth/forgot-password/route.ts` — POST
+
+```
+Request:  { email }
+Validate: forgotPasswordSchema
+Call:     authService.requestPasswordReset()
+Success:  200 { message: "If an account exists, a reset link has been sent." }
+Error:    400 (validation) | 500
+Note:     Always returns 200 to prevent email enumeration.
+```
+
+#### `src/app/api/auth/reset-password/route.ts` — POST
+
+```
+Request:  { token, password }
+Validate: resetPasswordSchema
+Call:     authService.resetPassword()
+Success:  200 { message: "Password reset successfully." }
+Error:    400 (validation / invalid token) | 500
+```
+
+#### `src/app/api/auth/resend-verification/route.ts` — POST
+
+```
+Auth:     Requires session (call auth())
+Request:  {} (uses session.user.id)
+Call:     authService.resendVerificationEmail()
+Success:  200 { message: "Verification email sent." }
+Error:    401 (unauthenticated) | 400 (already verified) | 500
+```
+
+---
+
+### 2.9 Auth Middleware (P2.R10)
+
+#### `src/middleware.ts` — Next.js middleware (project root of src/)
+
+```typescript
+import { auth } from '@/lib/auth/auth';
+import { NextResponse } from 'next/server';
+
+export default auth((req) => {
+  const { nextUrl, auth: session } = req;
+  const isLoggedIn = !!session?.user;
+  const isAuthPage = nextUrl.pathname.startsWith('/login') ||
+                     nextUrl.pathname.startsWith('/signup') ||
+                     nextUrl.pathname.startsWith('/forgot-password') ||
+                     nextUrl.pathname.startsWith('/reset-password');
+  const isDashboardPage = nextUrl.pathname.startsWith('/dashboard');
+  const isAdminPage = nextUrl.pathname.startsWith('/admin');
+
+  // Redirect logged-in users away from auth pages
+  if (isLoggedIn && isAuthPage) {
+    return NextResponse.redirect(new URL('/dashboard', nextUrl));
+  }
+
+  // Protect dashboard routes — redirect unauthenticated to login
+  if (!isLoggedIn && (isDashboardPage || isAdminPage)) {
+    const callbackUrl = encodeURIComponent(nextUrl.pathname + nextUrl.search);
+    return NextResponse.redirect(new URL(`/login?callbackUrl=${callbackUrl}`, nextUrl));
+  }
+
+  // Unverified users ARE allowed into /dashboard (Option B).
+  // Action restrictions are enforced at the API route level, not middleware.
+
+  return NextResponse.next();
+});
+
+export const config = {
+  matcher: ['/dashboard/:path*', '/admin/:path*', '/login', '/signup', '/forgot-password', '/reset-password'],
+};
+```
+
+**Key decisions:**
+- Middleware only handles redirect logic (unauthenticated → login, authenticated → away from auth pages).
+- Email verification is NOT enforced in middleware. Unverified users can access `/dashboard`. Action restrictions happen in API routes (checking `session.user.emailVerified`).
+- Callback URL is preserved for post-login redirect.
+
+---
+
+### 2.10 Shared Form Components (P2.R2, P2.R6, P2.R7, P2.R8)
+
+Since shadcn's `Form` component is unavailable in the radix-nova preset, we build thin shared wrappers around react-hook-form + shadcn primitives (`Input`, `Label`). These components eliminate repetitive form plumbing across auth pages and are reusable in future forms (org management, hackathon settings, etc.).
+
+All shared form components live in `src/components/ui/form/`.
+
+#### `src/components/ui/form/form-field.tsx` — Core wrapper
+
+```typescript
+'use client';
+
+import { type Control, type FieldPath, type FieldValues, useController } from 'react-hook-form';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { cn } from '@/lib/utils';
+
+interface FormFieldProps<T extends FieldValues> {
+  control: Control<T>;
+  name: FieldPath<T>;
+  label: string;
+  type?: string;
+  placeholder?: string;
+  description?: string;
+  disabled?: boolean;
+  className?: string;
+}
+
+export function FormField<T extends FieldValues>({
+  control,
+  name,
+  label,
+  type = 'text',
+  placeholder,
+  description,
+  disabled,
+  className,
+}: FormFieldProps<T>) {
+  const {
+    field,
+    fieldState: { error },
+  } = useController({ control, name });
+
+  return (
+    <div className={cn('space-y-2', className)}>
+      <Label htmlFor={name} className={cn(error && 'text-destructive')}>
+        {label}
+      </Label>
+      <Input
+        id={name}
+        type={type}
+        placeholder={placeholder}
+        disabled={disabled}
+        aria-invalid={!!error}
+        aria-describedby={error ? `${name}-error` : description ? `${name}-desc` : undefined}
+        {...field}
+      />
+      {description && !error && (
+        <p id={`${name}-desc`} className="text-sm text-muted-foreground">{description}</p>
+      )}
+      {error && (
+        <p id={`${name}-error`} role="alert" className="text-sm text-destructive">{error.message}</p>
+      )}
+    </div>
+  );
+}
+```
+
+**Key decisions:**
+- Generic over `FieldValues` — works with any Zod schema / form shape.
+- Uses `useController` (not `register`) for full control over field state and error display.
+- Accessibility: `aria-invalid`, `aria-describedby`, `role="alert"` on errors.
+- Destructive color on label and error message when validation fails.
+- Accepts all standard input props (`type`, `placeholder`, `disabled`).
+
+#### `src/components/ui/form/form-password-field.tsx` — Password with show/hide toggle
+
+Extends `FormField` with a visibility toggle button (eye icon via Lucide). Used on signup, login, and reset-password forms.
+
+```typescript
+'use client';
+
+// Same pattern as FormField, but with:
+// - Internal state for show/hide password
+// - Toggle button with Eye / EyeOff icons from lucide-react
+// - type switches between 'password' and 'text'
+// - aria-label on toggle button for accessibility
+```
+
+#### `src/components/ui/form/form-message.tsx` — Standalone form-level message
+
+For displaying form-level success/error messages (not field-level). Used after form submission.
+
+```typescript
+interface FormMessageProps {
+  type: 'success' | 'error';
+  message: string;
+}
+```
+
+Renders a styled alert box — green/success or red/destructive.
+
+#### `src/components/ui/form/index.ts` — Barrel export
+
+```typescript
+export { FormField } from './form-field';
+export { FormPasswordField } from './form-password-field';
+export { FormMessage } from './form-message';
+```
+
+**Usage in auth forms:**
+
+```typescript
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { FormField, FormPasswordField, FormMessage } from '@/components/ui/form';
+import { signUpSchema, type SignUpInput } from '@/lib/validations/auth';
+
+function SignUpForm() {
+  const { control, handleSubmit } = useForm<SignUpInput>({
+    resolver: zodResolver(signUpSchema),
+  });
+
+  return (
+    <form onSubmit={handleSubmit(onSubmit)}>
+      <FormField control={control} name="name" label="Full Name" placeholder="Jane Doe" />
+      <FormField control={control} name="email" label="Email" type="email" placeholder="jane@example.com" />
+      <FormPasswordField control={control} name="password" label="Password" />
+      <Button type="submit">Create Account</Button>
+    </form>
+  );
+}
+```
+
+This keeps every auth form to ~20 lines of JSX instead of repeating Label + Input + error handling for each field.
+
+---
+
+### 2.11 Auth Pages — Frontend (P2.R2, P2.R4, P2.R5, P2.R6, P2.R7, P2.R8, P2.R11)
+
+All auth pages live under `src/app/(auth)/` route group. They share a centered card layout with HackForge branding. All use the admin design tokens (light mode).
+
+#### Auth Layout — `src/app/(auth)/layout.tsx`
+
+A centered layout: full-height screen, content centered vertically and horizontally. HackForge logo/name at top. No sidebar or nav — clean, focused auth experience.
+
+#### Sign Up Page — `src/app/(auth)/signup/page.tsx`
+
+- **Route:** `/signup`
+- **Fields:** Name, Email, Password (with show/hide toggle)
+- **Validation:** Client-side via react-hook-form + zodResolver(signUpSchema). Server-side in API route.
+- **On submit:** POST to `/api/auth/signup`. On success, redirect to a "Check your email" confirmation page.
+- **Links:** "Already have an account? Log in" → `/login`
+- **Co-located components in `_components/`:** `signup-form.tsx` (client component with `'use client'`)
+
+#### Login Page — `src/app/(auth)/login/page.tsx`
+
+- **Route:** `/login`
+- **Fields:** Email, Password (with show/hide toggle)
+- **Validation:** Client-side via react-hook-form + zodResolver(loginSchema).
+- **On submit:** Call `signIn('credentials', { email, password, redirect: false })`. Handle errors inline.
+- **On success:** Redirect to `callbackUrl` (from query param) or `/dashboard`.
+- **Links:** "Forgot password?" → `/forgot-password`, "Don't have an account? Sign up" → `/signup`
+- **Co-located components:** `login-form.tsx`
+
+#### Forgot Password Page — `src/app/(auth)/forgot-password/page.tsx`
+
+- **Route:** `/forgot-password`
+- **Fields:** Email
+- **On submit:** POST to `/api/auth/forgot-password`. Always show success message ("If an account exists, a reset link has been sent.") regardless of whether the email exists.
+- **Links:** "Back to login" → `/login`
+- **Co-located components:** `forgot-password-form.tsx`
+
+#### Reset Password Page — `src/app/(auth)/reset-password/page.tsx`
+
+- **Route:** `/reset-password?token=xxx`
+- **Fields:** New Password, Confirm Password
+- **Validation:** Passwords must match (client-side). Password complexity (Zod).
+- **On submit:** POST to `/api/auth/reset-password` with token from URL + new password.
+- **On success:** Show success message + "Go to login" link.
+- **On invalid/expired token:** Show error with "Request a new reset link" → `/forgot-password`.
+- **Co-located components:** `reset-password-form.tsx`
+
+#### Verify Email Page — `src/app/(auth)/verify-email/page.tsx`
+
+- **Route:** `/verify-email?token=xxx`
+- **On load:** Automatically POST to `/api/auth/verify-email` with token from URL.
+- **On success:** Show "Email verified!" message + "Go to dashboard" link.
+- **On invalid/expired token:** Show error with "Resend verification email" button.
+- **No form — this is a confirmation page that auto-verifies on mount.**
+
+#### Check Email Page — `src/app/(auth)/check-email/page.tsx`
+
+- **Route:** `/check-email`
+- **Shown after:** Successful sign-up or forgot-password submission.
+- **Content:** "Check your email" message with icon. "Didn't receive it? Resend" link. "Back to login" link.
+
+---
+
+### 2.12 Email Verification Banner (P2.R5)
+
+#### `src/components/verification-banner.tsx`
+
+A client component (`'use client'`) that:
+- Checks `session.user.emailVerified` from the session.
+- If `false`, renders a persistent, non-dismissible banner at the top of the page:
+  - Yellow/amber background, warning icon.
+  - Text: "Please verify your email to unlock all features."
+  - "Resend verification email" button — POSTs to `/api/auth/resend-verification`.
+  - Shows toast on success/error.
+- If `true`, renders nothing.
+
+**Placement:** Imported in the dashboard layout (`src/app/(dashboard)/layout.tsx` — built in Part 3). For Part 2, the component is created and exported but not yet placed in a layout (no dashboard layout exists yet).
+
+---
+
+### 2.13 Verified Email Guard Utility (P2.R4)
+
+#### `src/lib/auth/require-verified.ts`
+
+A server-side utility used by API routes to enforce verified email on actions:
+
+```typescript
+import { auth } from './auth';
+
+export async function requireVerifiedUser(): Promise<{
+  user: { id: string; email: string; name: string; platformRole: string; emailVerified: boolean };
+} | { error: Response }>;
+```
+
+Usage in API routes:
+
+```typescript
+const result = await requireVerifiedUser();
+if ('error' in result) return result.error;
+const { user } = result;
+// proceed with the action
+```
+
+Returns a 401 JSON response if unauthenticated, or a 403 JSON response with message "Please verify your email to perform this action" if unverified.
+
+---
+
+### 2.14 Implementation Increments
+
+Part 2 is implemented in 4 increments.
+
+#### Increment 1: Auth Config + Validation Schemas + Email Service
+
+**What:** Install dependencies, configure NextAuth.js v5, create Zod validation schemas, set up provider-agnostic email service with Resend adapter.
+
+**Files created/modified:**
+- `package.json` — new dependencies (next-auth, bcryptjs, resend, @types/bcryptjs)
+- `src/lib/auth/auth.ts` — NextAuth configuration
+- `src/lib/auth/types.ts` — NextAuth type extensions
+- `src/lib/auth/constants.ts` — Centralized auth constants (expiry durations, bcrypt cost)
+- `src/lib/validations/auth.ts` — Zod schemas (signUp, login, forgotPassword, resetPassword)
+- `src/lib/email/types.ts` — EmailService interface and SendEmailParams/SendEmailResult types
+- `src/lib/email/adapters/resend-adapter.ts` — Resend implementation of EmailService
+- `src/lib/email/index.ts` — Email service factory (getEmailService singleton)
+- `src/lib/email/templates.ts` — Email template functions (provider-agnostic HTML/text)
+- `src/app/api/auth/[...nextauth]/route.ts` — NextAuth API route handler
+
+**Verify:** `tsc --noEmit` passes. NextAuth handler responds at `/api/auth/providers`.
+
+#### Increment 2: Token Service + Auth Service + API Routes
+
+**What:** Build the token service (create, validate, invalidate), auth service (signUp, verifyEmail, requestPasswordReset, resetPassword, resendVerification), and all API route handlers.
+
+**Files created/modified:**
+- `src/lib/services/token-service.ts` — Token CRUD operations
+- `src/lib/services/auth-service.ts` — Auth business logic
+- `src/app/api/auth/signup/route.ts`
+- `src/app/api/auth/verify-email/route.ts`
+- `src/app/api/auth/forgot-password/route.ts`
+- `src/app/api/auth/reset-password/route.ts`
+- `src/app/api/auth/resend-verification/route.ts`
+
+**Verify:** `tsc --noEmit` passes. Test sign-up API with curl. Verify email appears in Resend dashboard.
+
+#### Increment 3: Shared Form Components + Auth Pages (Frontend)
+
+**What:** Build shared form wrapper components (FormField, FormPasswordField, FormMessage), then build all auth pages — signup, login, forgot-password, reset-password, verify-email, check-email — with the auth layout. Auth forms use the shared components for DRY, consistent form plumbing.
+
+**Files created/modified:**
+- `src/components/ui/form/form-field.tsx` — Generic FormField wrapper (Label + Input + error)
+- `src/components/ui/form/form-password-field.tsx` — Password field with show/hide toggle
+- `src/components/ui/form/form-message.tsx` — Form-level success/error message
+- `src/components/ui/form/index.ts` — Barrel export
+- `src/app/(auth)/layout.tsx` — Centered auth layout
+- `src/app/(auth)/signup/page.tsx`
+- `src/app/(auth)/signup/_components/signup-form.tsx`
+- `src/app/(auth)/login/page.tsx`
+- `src/app/(auth)/login/_components/login-form.tsx`
+- `src/app/(auth)/forgot-password/page.tsx`
+- `src/app/(auth)/forgot-password/_components/forgot-password-form.tsx`
+- `src/app/(auth)/reset-password/page.tsx`
+- `src/app/(auth)/reset-password/_components/reset-password-form.tsx`
+- `src/app/(auth)/verify-email/page.tsx`
+- `src/app/(auth)/check-email/page.tsx`
+
+**Verify:** `tsc --noEmit` passes. Full sign-up → check-email → verify → login flow works in browser.
+
+#### Increment 4: Middleware + Verification Banner + Guard Utility
+
+**What:** Build the Next.js middleware for route protection, the verification banner component, and the requireVerifiedUser guard utility.
+
+**Files created/modified:**
+- `src/middleware.ts` — Route protection middleware
+- `src/components/verification-banner.tsx` — Email verification banner
+- `src/lib/auth/require-verified.ts` — Server-side verified email guard
+
+**Verify:** `tsc --noEmit` passes. Unauthenticated users are redirected to `/login`. Logged-in users are redirected away from auth pages. Callback URL is preserved.
+
+---
+
+### 2.15 Files Changed Summary
+
+| File | Action | Requirement |
+|------|--------|-------------|
+| `package.json` | Modified | P2.R1 (next-auth, bcryptjs, resend) |
+| `src/lib/auth/auth.ts` | Created | P2.R1, P2.R9 |
+| `src/lib/auth/types.ts` | Created | P2.R9 |
+| `src/lib/auth/constants.ts` | Created | P2.R3, P2.R7, P2.R12 |
+| `src/lib/auth/require-verified.ts` | Created | P2.R4 |
+| `src/lib/validations/auth.ts` | Created | P2.R2 |
+| `src/lib/email/types.ts` | Created | P2.R3, P2.R7 |
+| `src/lib/email/adapters/resend-adapter.ts` | Created | P2.R3, P2.R7 |
+| `src/lib/email/index.ts` | Created | P2.R3, P2.R7 |
+| `src/lib/email/templates.ts` | Created | P2.R3, P2.R7 |
+| `src/lib/services/token-service.ts` | Created | P2.R12 |
+| `src/lib/services/auth-service.ts` | Created | P2.R2, P2.R3, P2.R7, P2.R8 |
+| `src/app/api/auth/[...nextauth]/route.ts` | Created | P2.R1 |
+| `src/app/api/auth/signup/route.ts` | Created | P2.R2 |
+| `src/app/api/auth/verify-email/route.ts` | Created | P2.R3 |
+| `src/app/api/auth/forgot-password/route.ts` | Created | P2.R7 |
+| `src/app/api/auth/reset-password/route.ts` | Created | P2.R8 |
+| `src/app/api/auth/resend-verification/route.ts` | Created | P2.R5 |
+| `src/middleware.ts` | Created | P2.R10 |
+| `src/components/ui/form/form-field.tsx` | Created | P2.R2, P2.R6, P2.R7, P2.R8 |
+| `src/components/ui/form/form-password-field.tsx` | Created | P2.R2, P2.R6, P2.R8 |
+| `src/components/ui/form/form-message.tsx` | Created | P2.R2 |
+| `src/components/ui/form/index.ts` | Created | P2.R2 |
+| `src/app/(auth)/layout.tsx` | Created | P2.R11 |
+| `src/app/(auth)/signup/page.tsx` | Created | P2.R2 |
+| `src/app/(auth)/signup/_components/signup-form.tsx` | Created | P2.R2 |
+| `src/app/(auth)/login/page.tsx` | Created | P2.R6 |
+| `src/app/(auth)/login/_components/login-form.tsx` | Created | P2.R6 |
+| `src/app/(auth)/forgot-password/page.tsx` | Created | P2.R7 |
+| `src/app/(auth)/forgot-password/_components/forgot-password-form.tsx` | Created | P2.R7 |
+| `src/app/(auth)/reset-password/page.tsx` | Created | P2.R8 |
+| `src/app/(auth)/reset-password/_components/reset-password-form.tsx` | Created | P2.R8 |
+| `src/app/(auth)/verify-email/page.tsx` | Created | P2.R3 |
+| `src/app/(auth)/check-email/page.tsx` | Created | P2.R3 |
+| `src/components/verification-banner.tsx` | Created | P2.R5 |
+
+---
+
+*Part 3 (Org Management + App Shell + Admin Panel) TRD will be written after Part 2 implementation is complete.*
