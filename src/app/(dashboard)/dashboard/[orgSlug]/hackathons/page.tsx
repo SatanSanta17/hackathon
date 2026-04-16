@@ -1,4 +1,9 @@
-import { Trophy } from 'lucide-react';
+import { redirect } from 'next/navigation';
+
+import { auth } from '@/lib/auth/auth';
+import { getOrgBySlug, checkUserOrgRole } from '@/lib/services/org-service';
+import { getHackathonsByOrgId } from '@/lib/services/hackathon-service';
+import { HackathonList } from './_components/hackathon-list';
 
 export async function generateMetadata({
   params,
@@ -9,17 +14,45 @@ export async function generateMetadata({
   return { title: `Hackathons — ${orgSlug} — HackForge` };
 }
 
-export default function HackathonsPage() {
+export default async function HackathonsPage({
+  params,
+}: {
+  params: Promise<{ orgSlug: string }>;
+}) {
+  const { orgSlug } = await params;
+
+  const session = await auth();
+  if (!session?.user?.id) {
+    redirect('/login');
+  }
+
+  const org = await getOrgBySlug(orgSlug);
+  if (!org) {
+    redirect('/dashboard');
+  }
+
+  // Fetch with archived included for filtering
+  const hackathons = await getHackathonsByOrgId({
+    orgId: org.id,
+    includeArchived: true,
+  });
+
+  // Determine user role for permission gating
+  const orgRole = await checkUserOrgRole({
+    userId: session.user.id,
+    orgId: org.id,
+  });
+
+  const isAdmin = orgRole?.role === 'org_admin';
+
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold tracking-tight">Hackathons</h1>
-      <div className="flex flex-col items-center justify-center rounded-md border border-dashed py-16 text-center">
-        <Trophy className="size-10 text-muted-foreground" />
-        <h2 className="mt-4 text-lg font-semibold">No hackathons yet</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Hackathon management is coming in Phase 2.
-        </p>
-      </div>
+      <HackathonList
+        hackathons={hackathons}
+        orgSlug={orgSlug}
+        orgId={org.id}
+        isAdmin={isAdmin}
+      />
     </div>
   );
 }
