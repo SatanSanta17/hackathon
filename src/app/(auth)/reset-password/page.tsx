@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import type { Metadata } from 'next';
 
 import { Card, CardContent } from '@/components/ui/card';
@@ -21,7 +22,9 @@ export default function ResetPasswordPage() {
           </p>
         </div>
 
-        <ResetPasswordForm />
+        <Suspense>
+          <ResetPasswordForm />
+        </Suspense>
       </CardContent>
     </Card>
   );

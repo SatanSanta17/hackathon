@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
+import { Suspense, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
 import { CheckCircle2, XCircle, Loader2, Mail, ShieldAlert } from 'lucide-react';
@@ -12,72 +12,84 @@ import { SessionProvider } from '@/components/providers/session-provider';
 
 function InviteAcceptContent() {
   const searchParams = useSearchParams();
-  const router = useRouter();
   const { data: session, status: sessionStatus } = useSession();
   const token = searchParams.get('token');
 
-  const [state, setState] = useState<'loading' | 'success' | 'error' | 'not-logged-in' | 'unverified'>('loading');
-  const [message, setMessage] = useState('');
-  const [orgSlug, setOrgSlug] = useState<string | null>(null);
+  // Async result state — only set after the API call resolves
+  const [apiResult, setApiResult] = useState<{
+    status: 'idle' | 'success' | 'error';
+    message: string;
+    orgSlug: string | null;
+  }>({ status: 'idle', message: '', orgSlug: null });
   const hasAttempted = useRef(false);
 
+  // Derive synchronous display state from session + token (no setState needed)
+  const derivedState: 'loading' | 'error' | 'not-logged-in' | 'unverified' | 'accepting' =
+    !token
+      ? 'error'
+      : sessionStatus === 'loading'
+        ? 'loading'
+        : !session?.user
+          ? 'not-logged-in'
+          : !session.user.isEmailVerified
+            ? 'unverified'
+            : 'accepting';
+
+  // Combine: if the API has resolved, use that; otherwise use derived state
+  const state =
+    apiResult.status === 'success'
+      ? 'success'
+      : apiResult.status === 'error'
+        ? 'error'
+        : derivedState === 'error'
+          ? 'error'
+          : derivedState;
+  const message =
+    apiResult.message || (!token ? 'No invitation token found.' : '');
+  const orgSlug = apiResult.orgSlug;
+
   useEffect(() => {
-    if (sessionStatus === 'loading') return;
+    if (derivedState !== 'accepting') return;
     if (hasAttempted.current) return;
-
-    // No token in URL
-    if (!token) {
-      setState('error');
-      setMessage('No invitation token found.');
-      hasAttempted.current = true;
-      return;
-    }
-
-    // Not logged in
-    if (!session?.user) {
-      setState('not-logged-in');
-      hasAttempted.current = true;
-      return;
-    }
-
-    // Logged in but unverified
-    if (!session.user.isEmailVerified) {
-      setState('unverified');
-      hasAttempted.current = true;
-      return;
-    }
-
-    // Logged in and verified — accept the invite
     hasAttempted.current = true;
-    acceptInvite(token);
-  }, [sessionStatus, session, token]);
 
-  async function acceptInvite(inviteToken: string) {
-    try {
-      const res = await fetch('/api/invite/accept', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: inviteToken }),
-      });
+    async function acceptInvite() {
+      try {
+        const res = await fetch('/api/invite/accept', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token }),
+        });
 
-      const body = await res.json();
+        const body = await res.json();
 
-      if (res.ok) {
-        setState('success');
-        setMessage(body.message ?? 'You have joined the organization.');
-        setOrgSlug(body.orgSlug ?? null);
-      } else {
-        setState('error');
-        setMessage(body.message ?? 'Failed to accept invitation.');
+        if (res.ok) {
+          setApiResult({
+            status: 'success',
+            message: body.message ?? 'You have joined the organization.',
+            orgSlug: body.orgSlug ?? null,
+          });
+        } else {
+          setApiResult({
+            status: 'error',
+            message: body.message ?? 'Failed to accept invitation.',
+            orgSlug: null,
+          });
+        }
+      } catch {
+        setApiResult({
+          status: 'error',
+          message: 'Network error. Please try again.',
+          orgSlug: null,
+        });
       }
-    } catch {
-      setState('error');
-      setMessage('Network error. Please try again.');
     }
-  }
 
-  // Loading state
-  if (state === 'loading') {
+    acceptInvite();
+  }, [derivedState, token]);
+
+  // Loading / accepting state
+  if (state === 'loading' || state === 'accepting') {
     return (
       <Card className="w-full">
         <CardContent className="flex flex-col items-center gap-4 py-8">
@@ -111,7 +123,7 @@ function InviteAcceptContent() {
             </Link>
           </Button>
           <p className="text-xs text-muted-foreground">
-            Don't have an account?{' '}
+            Don&apos;t have an account?{' '}
             <Link href="/signup" className="text-primary underline">
               Sign up
             </Link>
@@ -181,7 +193,20 @@ function InviteAcceptContent() {
 export default function InviteAcceptPage() {
   return (
     <SessionProvider>
-      <InviteAcceptContent />
+      <Suspense
+        fallback={
+          <Card className="w-full">
+            <CardContent className="flex flex-col items-center gap-4 py-8">
+              <Loader2 className="size-8 animate-spin text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">
+                Processing your invitation...
+              </p>
+            </CardContent>
+          </Card>
+        }
+      >
+        <InviteAcceptContent />
+      </Suspense>
     </SessionProvider>
   );
 }

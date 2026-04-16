@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { Check, Circle, CircleDot, Loader2 } from 'lucide-react';
@@ -106,16 +106,44 @@ export function WizardShell({
   const [hackathonId, setHackathonId] = useState<string | null>(
     hackathon?.hackathon.id ?? null,
   );
+  const [hackathonData, setHackathonData] = useState<Partial<Hackathon>>(
+    hackathon?.hackathon ?? {},
+  );
+  const [phasesData, setPhasesData] = useState<Phase[]>(hackathon?.phases ?? []);
+  const [tracksData, setTracksData] = useState<Track[]>(hackathon?.tracks ?? []);
+  const [prizesData, setPrizesData] = useState<Prize[]>(hackathon?.prizes ?? []);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
 
-  // Resume-draft dialog state
-  const [showResumeDialog, setShowResumeDialog] = useState(false);
-
-  // Show resume dialog on mount if there's an existing draft and we're NOT in edit mode
-  useEffect(() => {
-    if (existingDraft && !isEditMode) {
-      setShowResumeDialog(true);
+  // Track which optional steps (5, 6, 7) the user has explicitly visited & saved.
+  // In edit mode or when resuming a draft, mark them visited based on data.
+  const [visitedSteps, setVisitedSteps] = useState<Set<number>>(() => {
+    const initial = new Set<number>();
+    if (hackathon) {
+      // Edit mode — all steps considered visited
+      for (let i = 1; i <= 8; i++) initial.add(i);
     }
-  }, [existingDraft, isEditMode]);
+    return initial;
+  });
+
+  // Resume-draft dialog state — show on mount if there's an existing draft and we're NOT in edit mode
+  const [showResumeDialog, setShowResumeDialog] = useState(
+    !!existingDraft && !isEditMode,
+  );
+
+  // Wrapper that also ratchets highestStepReached and marks the departing step as visited
+  const setCurrentStep = useCallback((stepOrUpdater: number | ((prev: number) => number)) => {
+    setCurrentStepRaw((prev) => {
+      const next = typeof stepOrUpdater === 'function' ? stepOrUpdater(prev) : stepOrUpdater;
+      // Mark the step we're leaving as visited
+      setVisitedSteps((vs) => {
+        const copy = new Set(vs);
+        copy.add(prev);
+        return copy;
+      });
+      setHighestStepReached((h) => Math.max(h, next));
+      return next;
+    });
+  }, []);
 
   // Resume the existing draft — load its data into wizard state
   const handleResumeDraft = useCallback(() => {
@@ -145,39 +173,6 @@ export function WizardShell({
   const handleStartFresh = useCallback(() => {
     setShowResumeDialog(false);
   }, []);
-
-  // Wrapper that also ratchets highestStepReached and marks the departing step as visited
-  const setCurrentStep = useCallback((stepOrUpdater: number | ((prev: number) => number)) => {
-    setCurrentStepRaw((prev) => {
-      const next = typeof stepOrUpdater === 'function' ? stepOrUpdater(prev) : stepOrUpdater;
-      // Mark the step we're leaving as visited
-      setVisitedSteps((vs) => {
-        const copy = new Set(vs);
-        copy.add(prev);
-        return copy;
-      });
-      setHighestStepReached((h) => Math.max(h, next));
-      return next;
-    });
-  }, []);
-  const [hackathonData, setHackathonData] = useState<Partial<Hackathon>>(
-    hackathon?.hackathon ?? {},
-  );
-  const [phasesData, setPhasesData] = useState<Phase[]>(hackathon?.phases ?? []);
-  const [tracksData, setTracksData] = useState<Track[]>(hackathon?.tracks ?? []);
-  const [prizesData, setPrizesData] = useState<Prize[]>(hackathon?.prizes ?? []);
-  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
-
-  // Track which optional steps (5, 6, 7) the user has explicitly visited & saved.
-  // In edit mode or when resuming a draft, mark them visited based on data.
-  const [visitedSteps, setVisitedSteps] = useState<Set<number>>(() => {
-    const initial = new Set<number>();
-    if (hackathon) {
-      // Edit mode — all steps considered visited
-      for (let i = 1; i <= 8; i++) initial.add(i);
-    }
-    return initial;
-  });
 
   // ---------------------------------------------------------------------------
   // Save status indicator timeout
@@ -221,7 +216,7 @@ export function WizardShell({
         toast.error('Network error. Please try again.');
       }
     },
-    [orgId, showSaveSuccess],
+    [orgId, showSaveSuccess, setCurrentStep],
   );
 
   // ---------------------------------------------------------------------------

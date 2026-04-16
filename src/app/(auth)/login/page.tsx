@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 
@@ -22,7 +23,9 @@ export default function LoginPage() {
           </p>
         </div>
 
-        <LoginForm />
+        <Suspense>
+          <LoginForm />
+        </Suspense>
       </CardContent>
 
       <CardFooter className="justify-center">

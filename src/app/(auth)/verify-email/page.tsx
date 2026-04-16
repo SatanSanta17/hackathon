@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { Suspense, useEffect, useState, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { CheckCircle, XCircle, Loader2 } from 'lucide-react';
@@ -9,24 +9,22 @@ import { Card, CardContent } from '@/components/ui/card';
 
 type VerifyState = 'loading' | 'success' | 'error';
 
-export default function VerifyEmailPage() {
+function VerifyEmailContent() {
   const searchParams = useSearchParams();
   const token = searchParams.get('token');
 
-  const [state, setState] = useState<VerifyState>('loading');
-  const [errorMessage, setErrorMessage] = useState('');
+  const [state, setState] = useState<VerifyState>(token ? 'loading' : 'error');
+  const [errorMessage, setErrorMessage] = useState(
+    token ? '' : 'No verification token provided.',
+  );
   const hasRun = useRef(false);
 
   useEffect(() => {
+    if (!token) return;
+
     // Prevent double-run in React strict mode
     if (hasRun.current) return;
     hasRun.current = true;
-
-    if (!token) {
-      setState('error');
-      setErrorMessage('No verification token provided.');
-      return;
-    }
 
     async function verify() {
       try {
@@ -107,5 +105,24 @@ export default function VerifyEmailPage() {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+export default function VerifyEmailPage() {
+  return (
+    <Suspense
+      fallback={
+        <Card>
+          <CardContent className="space-y-4 text-center">
+            <Loader2 className="mx-auto size-10 animate-spin text-muted-foreground" />
+            <p className="text-sm text-muted-foreground">
+              Verifying your email...
+            </p>
+          </CardContent>
+        </Card>
+      }
+    >
+      <VerifyEmailContent />
+    </Suspense>
   );
 }
