@@ -77,8 +77,9 @@ export function StepTracks({
       addForm.reset();
       setShowAddForm(false);
       toast.success('Track added.');
-    } catch {
-      toast.error('Network error adding track.');
+    } catch (err: unknown) {
+      console.error('Add track error:', err);
+      toast.error(err instanceof Error ? err.message : 'Network error adding track.');
     } finally {
       setIsSubmitting(false);
     }
@@ -126,8 +127,9 @@ export function StepTracks({
       onTracksChange(updated);
       setEditingTrackId(null);
       toast.success('Track updated.');
-    } catch {
-      toast.error('Network error updating track.');
+    } catch (err: unknown) {
+      console.error('Edit track error:', err);
+      toast.error(err instanceof Error ? err.message : 'Network error updating track.');
     } finally {
       setIsSubmitting(false);
     }
@@ -156,8 +158,9 @@ export function StepTracks({
         setTracks(updated);
         onTracksChange(updated);
         toast.success('Track removed.');
-      } catch {
-        toast.error('Network error removing track.');
+      } catch (err: unknown) {
+        console.error('Delete track error:', err);
+        toast.error(err instanceof Error ? err.message : 'Network error removing track.');
       }
     },
     [hackathonId, orgId, tracks, onTracksChange],
@@ -189,8 +192,9 @@ export function StepTracks({
           }),
         );
         await Promise.all(promises);
-      } catch {
-        toast.error('Failed to save new order.');
+      } catch (err: unknown) {
+        console.error('Reorder tracks error:', err);
+        toast.error(err instanceof Error ? err.message : 'Failed to save new order.');
       }
     },
     [tracks, hackathonId, orgId, onTracksChange],

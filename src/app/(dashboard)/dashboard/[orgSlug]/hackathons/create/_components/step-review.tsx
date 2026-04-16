@@ -141,8 +141,9 @@ export function StepReview({
 
       toast.success('Hackathon published!');
       router.push(`/hackathons/${body.slug}`);
-    } catch {
-      toast.error('Network error. Please try again.');
+    } catch (err: unknown) {
+      console.error('Publish hackathon error:', err);
+      toast.error(err instanceof Error ? err.message : 'Network error. Please try again.');
     } finally {
       setIsPublishing(false);
     }

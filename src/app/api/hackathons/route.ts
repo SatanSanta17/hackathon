@@ -57,10 +57,11 @@ export async function POST(request: Request) {
       { message: 'Hackathon created.', hackathon: result.hackathon },
       { status: 201 },
     );
-  } catch (err) {
-    console.error('[api/hackathons] POST error:', err);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Internal server error.';
+    console.error('[api/hackathons] POST error:', message);
     return NextResponse.json(
-      { message: 'Internal server error.' },
+      { message },
       { status: 500 },
     );
   }

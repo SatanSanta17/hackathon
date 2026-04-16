@@ -92,8 +92,9 @@ export function StepPrizes({
       addForm.reset({ name: '', description: '', rank: updated.length + 1 });
       setShowAddForm(false);
       toast.success('Prize added.');
-    } catch {
-      toast.error('Network error adding prize.');
+    } catch (err: unknown) {
+      console.error('Add prize error:', err);
+      toast.error(err instanceof Error ? err.message : 'Network error adding prize.');
     } finally {
       setIsSubmitting(false);
     }
@@ -123,8 +124,9 @@ export function StepPrizes({
       setPrizes(updated);
       onPrizesChange(updated);
       toast.success(`"${presetName}" added.`);
-    } catch {
-      toast.error('Network error adding prize.');
+    } catch (err: unknown) {
+      console.error('Add preset prize error:', err);
+      toast.error(err instanceof Error ? err.message : 'Network error adding prize.');
     } finally {
       setIsSubmitting(false);
     }
@@ -172,8 +174,9 @@ export function StepPrizes({
       onPrizesChange(updated);
       setEditingPrizeId(null);
       toast.success('Prize updated.');
-    } catch {
-      toast.error('Network error updating prize.');
+    } catch (err: unknown) {
+      console.error('Edit prize error:', err);
+      toast.error(err instanceof Error ? err.message : 'Network error updating prize.');
     } finally {
       setIsSubmitting(false);
     }
@@ -202,8 +205,9 @@ export function StepPrizes({
         setPrizes(updated);
         onPrizesChange(updated);
         toast.success('Prize removed.');
-      } catch {
-        toast.error('Network error removing prize.');
+      } catch (err: unknown) {
+        console.error('Delete prize error:', err);
+        toast.error(err instanceof Error ? err.message : 'Network error removing prize.');
       }
     },
     [hackathonId, orgId, prizes, onPrizesChange],
@@ -235,8 +239,9 @@ export function StepPrizes({
           }),
         );
         await Promise.all(promises);
-      } catch {
-        toast.error('Failed to save new order.');
+      } catch (err: unknown) {
+        console.error('Reorder prizes error:', err);
+        toast.error(err instanceof Error ? err.message : 'Failed to save new order.');
       }
     },
     [prizes, hackathonId, orgId, onPrizesChange],
@@ -295,8 +300,9 @@ export function StepPrizes({
           onPrizesChange(updated);
           toast.success('Prize image uploaded.');
         }
-      } catch {
-        toast.error('Network error uploading image.');
+      } catch (err: unknown) {
+        console.error('Prize image upload error:', err);
+        toast.error(err instanceof Error ? err.message : 'Network error uploading image.');
       } finally {
         setUploadingPrizeId(null);
       }

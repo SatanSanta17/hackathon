@@ -73,10 +73,11 @@ export async function PATCH(
       staleWarning,
       lastUpdatedAt: result.hackathon?.updatedAt,
     });
-  } catch (err) {
-    console.error('[api/hackathons/[id]] PATCH error:', err);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Internal server error.';
+    console.error('[api/hackathons/[id]] PATCH error:', message);
     return NextResponse.json(
-      { message: 'Internal server error.' },
+      { message },
       { status: 500 },
     );
   }

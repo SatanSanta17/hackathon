@@ -84,10 +84,11 @@ export async function PATCH(
       message: 'Prize updated.',
       prize: updated,
     });
-  } catch (err) {
-    console.error('[api/hackathons/[id]/prizes/[prizeId]] PATCH error:', err);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Internal server error.';
+    console.error('[api/hackathons/[id]/prizes/[prizeId]] PATCH error:', message);
     return NextResponse.json(
-      { message: 'Internal server error.' },
+      { message },
       { status: 500 },
     );
   }
@@ -155,10 +156,11 @@ export async function DELETE(
 
     console.log('[api/hackathons/[id]/prizes/[prizeId]] DELETE: removed:', { id: prizeId });
     return NextResponse.json({ message: 'Prize deleted.' });
-  } catch (err) {
-    console.error('[api/hackathons/[id]/prizes/[prizeId]] DELETE error:', err);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Internal server error.';
+    console.error('[api/hackathons/[id]/prizes/[prizeId]] DELETE error:', message);
     return NextResponse.json(
-      { message: 'Internal server error.' },
+      { message },
       { status: 500 },
     );
   }

@@ -82,10 +82,11 @@ export async function POST(
       { message: 'Prize created.', prize },
       { status: 201 },
     );
-  } catch (err) {
-    console.error('[api/hackathons/[id]/prizes] POST error:', err);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Internal server error.';
+    console.error('[api/hackathons/[id]/prizes] POST error:', message);
     return NextResponse.json(
-      { message: 'Internal server error.' },
+      { message },
       { status: 500 },
     );
   }

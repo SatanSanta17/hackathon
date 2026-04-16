@@ -152,8 +152,9 @@ export function StepBasicInfo({
         setCoverImageKey(body.key);
         setCoverImageUrl(body.url);
         toast.success('Cover image uploaded.');
-      } catch {
-        toast.error('Network error uploading image.');
+      } catch (err: unknown) {
+        console.error('Image upload error:', err);
+        toast.error(err instanceof Error ? err.message : 'Network error uploading image.');
       } finally {
         setIsUploading(false);
       }
@@ -224,8 +225,9 @@ export function StepBasicInfo({
 
       onSave(body.hackathon);
       onNext();
-    } catch {
-      toast.error('Network error. Please try again.');
+    } catch (err: unknown) {
+      console.error('Save basic info error:', err);
+      toast.error(err instanceof Error ? err.message : 'Network error. Please try again.');
     } finally {
       setIsSaving(false);
     }
@@ -305,7 +307,7 @@ export function StepBasicInfo({
             </p>
           )}
           {slugCollisionMessage && (
-            <p className="text-sm text-blue-600">{slugCollisionMessage}</p>
+            <p className="text-sm text-primary">{slugCollisionMessage}</p>
           )}
         </div>
 

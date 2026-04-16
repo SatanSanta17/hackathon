@@ -2,7 +2,7 @@
 
 **Document ID:** ARCH-004  
 **Date:** April 16, 2026  
-**Status:** Phase 2 Part 1 Complete (DB Schema + StorageProvider + Templates + Service)  
+**Status:** Phase 2 Part 2 Complete (Hackathon Creation Wizard + Edit Mode + Resume Draft)  
 **Update Frequency:** Every development phase
 
 ---
@@ -155,7 +155,24 @@ hackforge/                              # PROJECT ROOT
     │   │   │       │       ├── invite-dialog.tsx
     │   │   │       │       └── role-select.tsx
     │   │   │       ├── hackathons/
-    │   │   │       │   └── page.tsx     # Placeholder (Phase 2)
+    │   │   │       │   ├── page.tsx     # Hackathon list (placeholder)
+    │   │   │       │   ├── create/
+    │   │   │       │   │   ├── page.tsx  # Wizard entry (server: auth + draft detection + templates)
+    │   │   │       │   │   └── _components/
+    │   │   │       │   │       ├── wizard-shell.tsx     # Step indicator + navigation + state manager
+    │   │   │       │   │       ├── step-template.tsx    # Step 1: Choose Template
+    │   │   │       │   │       ├── step-basic-info.tsx  # Step 2: Title, desc, cover, slug
+    │   │   │       │   │       ├── step-tracks.tsx      # Step 3: Tracks (DnD reorder)
+    │   │   │       │   │       ├── step-timeline.tsx    # Step 4: Phase dates
+    │   │   │       │   │       ├── step-team-rules.tsx  # Step 5: Team size, visibility
+    │   │   │       │   │       ├── step-prizes.tsx      # Step 6: Prizes (DnD reorder)
+    │   │   │       │   │       ├── step-rules-faqs.tsx  # Step 7: Tiptap rich text editors
+    │   │   │       │   │       ├── step-review.tsx      # Step 8: Review & Publish
+    │   │   │       │   │       ├── image-crop-modal.tsx # 16:9 cover image cropper
+    │   │   │       │   │       └── tiptap-editor.tsx    # Reusable Tiptap editor w/ toolbar
+    │   │   │       │   └── [hackathonId]/
+    │   │   │       │       └── edit/
+    │   │   │       │           └── page.tsx  # Edit wizard (server: loads hackathon + templates)
     │   │   │       └── settings/
     │   │   │           └── page.tsx     # Placeholder (future phase)
     │   │   └── admin/
@@ -187,6 +204,26 @@ hackforge/                              # PROJECT ROOT
     │       │               ├── route.ts      # DELETE remove member
     │       │               └── role/
     │       │                   └── route.ts  # PATCH change role
+    │       ├── hackathons/
+    │       │   ├── route.ts                 # POST create draft from template
+    │       │   └── [hackathonId]/
+    │       │       ├── route.ts             # PATCH update hackathon fields
+    │       │       ├── publish/
+    │       │       │   └── route.ts         # POST publish hackathon
+    │       │       ├── tracks/
+    │       │       │   ├── route.ts         # POST add track
+    │       │       │   └── [trackId]/
+    │       │       │       └── route.ts     # PATCH edit / DELETE remove track
+    │       │       ├── phases/
+    │       │       │   └── [phaseId]/
+    │       │       │       └── route.ts     # PATCH update phase dates/name
+    │       │       └── prizes/
+    │       │           ├── route.ts         # POST add prize
+    │       │           └── [prizeId]/
+    │       │               └── route.ts     # PATCH edit / DELETE remove prize
+    │       ├── upload/
+    │       │   └── image/
+    │       │       └── route.ts             # POST upload image (cover/prize)
     │       ├── invite/
     │       │   └── accept/
     │       │       └── route.ts             # POST accept org invite
@@ -571,4 +608,4 @@ notification_type: registration, submission, judging, result, announcement
 
 ---
 
-*This document reflects what EXISTS in the codebase as of Phase 2 Part 1 completion (April 16, 2026). It is updated after each development part. Planned tables will be validated against actual implementation during their respective phases.*
+*This document reflects what EXISTS in the codebase as of Phase 2 Part 2 completion (April 17, 2026). It is updated after each development part. Planned tables will be validated against actual implementation during their respective phases.*

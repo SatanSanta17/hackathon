@@ -112,10 +112,11 @@ export async function POST(request: Request) {
       key: result.key,
       url: result.url,
     });
-  } catch (err) {
-    console.error('[api/upload/image] POST error:', err);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Internal server error.';
+    console.error('[api/upload/image] POST error:', message);
     return NextResponse.json(
-      { message: 'Internal server error.' },
+      { message },
       { status: 500 },
     );
   }

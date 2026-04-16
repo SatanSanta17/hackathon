@@ -79,10 +79,11 @@ export async function POST(
       { message: 'Track created.', track },
       { status: 201 },
     );
-  } catch (err) {
-    console.error('[api/hackathons/[id]/tracks] POST error:', err);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Internal server error.';
+    console.error('[api/hackathons/[id]/tracks] POST error:', message);
     return NextResponse.json(
-      { message: 'Internal server error.' },
+      { message },
       { status: 500 },
     );
   }

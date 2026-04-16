@@ -67,7 +67,8 @@ export function ImageCropModal({
         'image/webp',
         0.9,
       );
-    } catch {
+    } catch (err: unknown) {
+      console.error('Crop image error:', err);
       setIsCropping(false);
     }
   };

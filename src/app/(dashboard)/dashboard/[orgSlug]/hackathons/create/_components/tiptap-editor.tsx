@@ -1,6 +1,6 @@
 'use client';
 
-import { useState as useReactState } from 'react';
+import { useState } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
@@ -40,7 +40,8 @@ export function TiptapEditor({
   className,
 }: TiptapEditorProps) {
   // Force re-render on every transaction so toolbar active states stay in sync
-  const [, setTick] = useReactState(0);
+  // Force re-render counter — unnamed first element is intentionally unused
+  const [, setTick] = useState(0);
 
   const editor = useEditor({
     immediatelyRender: false,

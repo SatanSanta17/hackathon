@@ -6,6 +6,38 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Phase 2, Part 2: Hackathon Creation Wizard + Edit Mode (April 17, 2026)
+
+#### Added
+- 8-step hackathon creation wizard with sidebar navigation and data-driven step status
+- Step 1: Template selection (4 templates) — creates draft hackathon, locked after creation
+- Step 2: Basic info — title, description, cover image upload with 16:9 crop (react-cropper), auto-slug with collision handling
+- Step 3: Tracks — add/edit/delete/reorder tracks with drag-and-drop (@hello-pangea/dnd)
+- Step 4: Timeline — editable phase dates with per-phase and cross-phase chronological validation
+- Step 5: Team rules — min/max team size, individual participation toggle, visibility dropdown
+- Step 6: Prizes — add/edit/delete/reorder prizes with presets and image upload
+- Step 7: Rules & FAQs — two Tiptap v3 rich text editors (bold, italic, headings, lists, links)
+- Step 8: Review & Publish — read-only summary with edit links, client-side validation, publish flow
+- Wizard sidebar: three-state data-driven indicators (complete/incomplete/not started), clickable up to highest reached step
+- Resume draft flow: detects existing drafts on `/create`, shows dialog to resume or start fresh
+- Edit hackathon route (`/hackathons/[hackathonId]/edit`) — pre-fills wizard with existing data
+- Image crop modal with locked 16:9 aspect ratio, outputs 1280×720 WebP
+- Tiptap editor component with 9-button toolbar and transaction-based active state syncing
+- API routes: POST/PATCH/DELETE for hackathons, tracks, phases, prizes; POST publish; POST upload image
+- `@tailwindcss/typography` plugin for prose styling in Tiptap editors
+
+### Phase 2, Part 1: Hackathon Data Layer (April 16, 2026)
+
+#### Added
+- Database schema: hackathons, phases, tracks, prizes, hackathon_templates tables
+- Postgres enums: hackathon_status, template_type, visibility, phase_type, phase_status
+- StorageProvider interface with Supabase adapter (upload, getSignedUrl, delete, list)
+- Storage constants: file type/size limits, path patterns for cover images and prize images
+- Hackathon service: CRUD operations, slug generation, template cloning, lifecycle transitions, draft detection
+- Hackathon validation schemas (Zod): create, update, track, phase, prize, publish, transition
+- Template seed data: 4 default templates (Idea Sprint, Build & Ship, Innovation Pipeline, Open Challenge)
+- Database migration for Phase 2 tables
+
 ### Phase 1, Part 3: Org Management + App Shell + Admin Panel (April 16, 2026)
 
 #### Added

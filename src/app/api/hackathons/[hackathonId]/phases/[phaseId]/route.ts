@@ -96,10 +96,11 @@ export async function PATCH(
       message: 'Phase updated.',
       phase: updated,
     });
-  } catch (err) {
-    console.error('[api/hackathons/[id]/phases/[phaseId]] PATCH error:', err);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Internal server error.';
+    console.error('[api/hackathons/[id]/phases/[phaseId]] PATCH error:', message);
     return NextResponse.json(
-      { message: 'Internal server error.' },
+      { message },
       { status: 500 },
     );
   }

@@ -61,8 +61,9 @@ export function StepRulesFaqs({
 
       onSave(body.hackathon);
       onNext();
-    } catch {
-      toast.error('Network error. Please try again.');
+    } catch (err: unknown) {
+      console.error('Save rules & FAQs error:', err);
+      toast.error(err instanceof Error ? err.message : 'Network error. Please try again.');
     } finally {
       setIsSaving(false);
     }

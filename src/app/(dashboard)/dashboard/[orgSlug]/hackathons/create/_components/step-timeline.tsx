@@ -205,7 +205,8 @@ export function StepTimeline({
       }
 
       onSave();
-    } catch (err) {
+    } catch (err: unknown) {
+      console.error('Save timeline error:', err);
       toast.error(err instanceof Error ? err.message : 'Failed to save timeline.');
     } finally {
       setIsSaving(false);
