@@ -4,11 +4,14 @@ import type { Metadata } from 'next';
 import { getHackathonBySlug } from '@/lib/services/hackathon-service';
 import { getStorageProvider } from '@/lib/storage';
 
+import { LandingNav } from './_components/landing-nav';
 import { LandingHero } from './_components/landing-hero';
 import { LandingAbout } from './_components/landing-about';
 import { LandingTracks } from './_components/landing-tracks';
 import { LandingTimeline } from './_components/landing-timeline';
 import { LandingPrizes } from './_components/landing-prizes';
+import { LandingRules } from './_components/landing-rules';
+import { LandingFaqs } from './_components/landing-faqs';
 import { LandingFooter } from './_components/landing-footer';
 
 // ---------------------------------------------------------------------------
@@ -148,12 +151,9 @@ export default async function HackathonLandingPage({ params }: PageProps) {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://hackforge.com';
   const pageUrl = `${appUrl}/hackathons/${slug}`;
 
-  // Store sections for use in increment 4D (sticky nav)
-  void sections;
-
   return (
     <>
-      {/* Sticky nav will be added in increment 4D */}
+      <LandingNav sections={sections} />
 
       <main>
         <LandingHero
@@ -180,8 +180,13 @@ export default async function HackathonLandingPage({ params }: PageProps) {
           <LandingPrizes prizes={prizesWithImages} />
         )}
 
-        {/* Rules section will be added in increment 4D */}
-        {/* FAQs section will be added in increment 4D */}
+        {hackathon.rulesHtml && (
+          <LandingRules html={hackathon.rulesHtml} />
+        )}
+
+        {hackathon.faqsHtml && (
+          <LandingFaqs html={hackathon.faqsHtml} />
+        )}
       </main>
 
       <LandingFooter />
