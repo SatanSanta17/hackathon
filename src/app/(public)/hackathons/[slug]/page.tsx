@@ -7,6 +7,8 @@ import { getStorageProvider } from '@/lib/storage';
 import { LandingHero } from './_components/landing-hero';
 import { LandingAbout } from './_components/landing-about';
 import { LandingTracks } from './_components/landing-tracks';
+import { LandingTimeline } from './_components/landing-timeline';
+import { LandingPrizes } from './_components/landing-prizes';
 import { LandingFooter } from './_components/landing-footer';
 
 // ---------------------------------------------------------------------------
@@ -146,10 +148,8 @@ export default async function HackathonLandingPage({ params }: PageProps) {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://hackforge.com';
   const pageUrl = `${appUrl}/hackathons/${slug}`;
 
-  // Store sections and resolved data for use in increments 4C/4D
-  // (timeline, prizes, rules, faqs, nav components will be added in later increments)
+  // Store sections for use in increment 4D (sticky nav)
   void sections;
-  void prizesWithImages;
 
   return (
     <>
@@ -174,8 +174,12 @@ export default async function HackathonLandingPage({ params }: PageProps) {
           <LandingTracks tracks={tracks} />
         )}
 
-        {/* Timeline section will be added in increment 4C */}
-        {/* Prizes section will be added in increment 4C */}
+        <LandingTimeline phases={sortedPhases} />
+
+        {prizesWithImages.length > 0 && (
+          <LandingPrizes prizes={prizesWithImages} />
+        )}
+
         {/* Rules section will be added in increment 4D */}
         {/* FAQs section will be added in increment 4D */}
       </main>
