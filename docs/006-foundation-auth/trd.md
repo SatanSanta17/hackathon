@@ -65,10 +65,18 @@ Configuration (from `components.json`):
 **Additional shadcn components to install** (forward-compatible with Parts 2–3):
 
 ```bash
-npx shadcn@latest add card input label form toast sonner
+npx shadcn@latest add card input label sonner
 ```
 
-Note: `button` and `utils` were already created during init.
+Note: `button` and `utils` were already created during init. The `form` and `toast` components are **not available** in the radix-nova style. Instead:
+- **Toasts:** Sonner is the toast solution for this preset (already installed and configured with `next-themes` integration).
+- **Forms:** `react-hook-form` + `@hookform/resolvers` + `zod` are installed as direct dependencies. Form components are built using the existing `input` and `label` primitives with react-hook-form bindings. Custom form wrapper components will be created in Part 2 as needed.
+
+**Additional dependencies installed:**
+
+```bash
+npm install react-hook-form @hookform/resolvers zod
+```
 
 **Dual-tone design tokens in `src/app/globals.css`:**
 
