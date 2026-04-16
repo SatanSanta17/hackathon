@@ -275,6 +275,34 @@ export async function getHackathonsByOrgId(params: {
 }
 
 // ---------------------------------------------------------------------------
+// Get Hackathon Stats (P3.R12 — dashboard stat cards)
+// ---------------------------------------------------------------------------
+
+export interface HackathonStats {
+  total: number;
+  active: number;
+  draft: number;
+}
+
+export async function getHackathonStats(orgId: string): Promise<HackathonStats> {
+  console.log('[hackathon-service] getHackathonStats:', { orgId });
+
+  const allHackathons = await db.query.hackathons.findMany({
+    where: and(
+      eq(hackathons.orgId, orgId),
+      isNull(hackathons.deletedAt),
+    ),
+    columns: { id: true, status: true },
+  });
+
+  return {
+    total: allHackathons.length,
+    active: allHackathons.filter((h) => h.status === 'active').length,
+    draft: allHackathons.filter((h) => h.status === 'draft').length,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Update Hackathon
 // ---------------------------------------------------------------------------
 
