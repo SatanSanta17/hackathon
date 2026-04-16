@@ -636,7 +636,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           email: user.email,
           name: user.name,
           platformRole: user.platformRole,
-          emailVerified: user.emailVerified,
+          isEmailVerified: user.emailVerified,
         };
       },
     }),
@@ -653,14 +653,14 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         token.email = user.email;
         token.name = user.name;
         token.platformRole = user.platformRole;
-        token.emailVerified = user.emailVerified;
+        token.isEmailVerified = user.isEmailVerified;
       }
       return token;
     },
     session({ session, token }) {
       session.user.id = token.userId as string;
       session.user.platformRole = token.platformRole as string;
-      session.user.emailVerified = token.emailVerified as boolean;
+      session.user.isEmailVerified = token.isEmailVerified as boolean;
       return session;
     },
   },
@@ -670,8 +670,9 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 **Key decisions:**
 - `authorize` performs email lookup + bcrypt compare. Returns null for invalid credentials (NextAuth translates to error).
 - Soft-deleted users (`deletedAt` not null) are treated as non-existent.
-- Unverified users ARE allowed to log in (Option B). `emailVerified` is included in the JWT so downstream checks can gate actions.
+- Unverified users ARE allowed to log in (Option B). `isEmailVerified` is included in the JWT so downstream checks can gate actions.
 - Email is lowercased before lookup to ensure case-insensitive matching.
+- Custom NextAuth field is `isEmailVerified` (not `emailVerified`) to avoid conflict with NextAuth v5's base `User.emailVerified?: Date | null` type. Database column remains `email_verified` and Drizzle field remains `emailVerified`.
 
 #### `src/lib/auth/types.ts` — NextAuth type extensions
 
@@ -682,7 +683,7 @@ import 'next-auth/jwt';
 declare module 'next-auth' {
   interface User {
     platformRole?: string;
-    emailVerified?: boolean;
+    isEmailVerified?: boolean;
   }
   interface Session {
     user: {
@@ -690,7 +691,7 @@ declare module 'next-auth' {
       email: string;
       name: string;
       platformRole: string;
-      emailVerified: boolean;
+      isEmailVerified: boolean;
     };
   }
 }
@@ -699,7 +700,7 @@ declare module 'next-auth/jwt' {
   interface JWT {
     userId?: string;
     platformRole?: string;
-    emailVerified?: boolean;
+    isEmailVerified?: boolean;
   }
 }
 ```
@@ -1151,7 +1152,7 @@ export const config = {
 
 **Key decisions:**
 - Middleware only handles redirect logic (unauthenticated → login, authenticated → away from auth pages).
-- Email verification is NOT enforced in middleware. Unverified users can access `/dashboard`. Action restrictions happen in API routes (checking `session.user.emailVerified`).
+- Email verification is NOT enforced in middleware. Unverified users can access `/dashboard`. Action restrictions happen in API routes (checking `session.user.isEmailVerified`).
 - Callback URL is preserved for post-login redirect.
 
 ---
@@ -1359,7 +1360,7 @@ A centered layout: full-height screen, content centered vertically and horizonta
 #### `src/components/verification-banner.tsx`
 
 A client component (`'use client'`) that:
-- Checks `session.user.emailVerified` from the session.
+- Checks `session.user.isEmailVerified` from the session.
 - If `false`, renders a persistent, non-dismissible banner at the top of the page:
   - Yellow/amber background, warning icon.
   - Text: "Please verify your email to unlock all features."
@@ -1381,7 +1382,7 @@ A server-side utility used by API routes to enforce verified email on actions:
 import { auth } from './auth';
 
 export async function requireVerifiedUser(): Promise<{
-  user: { id: string; email: string; name: string; platformRole: string; emailVerified: boolean };
+  user: { id: string; email: string; name: string; platformRole: string; isEmailVerified: boolean };
 } | { error: Response }>;
 ```
 
