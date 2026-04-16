@@ -2,7 +2,7 @@
 
 **Document ID:** ARCH-004  
 **Date:** April 16, 2026  
-**Status:** Phase 2 Part 2 Complete (Hackathon Creation Wizard + Edit Mode + Resume Draft)  
+**Status:** Phase 2 Part 3 Complete (Hackathon List + Management + Lifecycle Engine)  
 **Update Frequency:** Every development phase
 
 ---
@@ -144,7 +144,7 @@ hackforge/                              # PROJECT ROOT
     │   │   │   └── [orgSlug]/
     │   │   │       ├── layout.tsx       # Org validation + sidebar + top bar
     │   │   │       ├── loading.tsx      # Dashboard skeleton
-    │   │   │       ├── page.tsx         # Org dashboard (stat cards)
+    │   │   │       ├── page.tsx         # Org dashboard (real hackathon stats)
     │   │   │       ├── _components/
     │   │   │       │   └── stat-card.tsx
     │   │   │       ├── members/
@@ -155,7 +155,10 @@ hackforge/                              # PROJECT ROOT
     │   │   │       │       ├── invite-dialog.tsx
     │   │   │       │       └── role-select.tsx
     │   │   │       ├── hackathons/
-    │   │   │       │   ├── page.tsx     # Hackathon list (placeholder)
+    │   │   │       │   ├── page.tsx     # Hackathon list (server: fetches hackathons + role)
+    │   │   │       │   ├── loading.tsx  # Hackathon list skeleton
+    │   │   │       │   ├── _components/
+    │   │   │       │   │   └── hackathon-list.tsx  # Client: filters, cards, context menu, actions
     │   │   │       │   ├── create/
     │   │   │       │   │   ├── page.tsx  # Wizard entry (server: auth + draft detection + templates)
     │   │   │       │   │   └── _components/
@@ -210,6 +213,10 @@ hackforge/                              # PROJECT ROOT
     │       │       ├── route.ts             # PATCH update hackathon fields
     │       │       ├── publish/
     │       │       │   └── route.ts         # POST publish hackathon
+    │       │       ├── transition/
+    │       │       │   └── route.ts         # POST manual status transition (publish/archive)
+    │       │       ├── delete/
+    │       │       │   └── route.ts         # POST soft-delete draft hackathon
     │       │       ├── tracks/
     │       │       │   ├── route.ts         # POST add track
     │       │       │   └── [trackId]/
@@ -299,7 +306,8 @@ hackforge/                              # PROJECT ROOT
         │   ├── token-service.ts       # SHA-256 token generation + hashing
         │   ├── org-service.ts         # Org CRUD, membership, invites
         │   ├── admin-service.ts       # Platform-wide queries (super_admin)
-        │   └── hackathon-service.ts   # Hackathon CRUD, slug gen, lifecycle transitions
+        │   ├── hackathon-service.ts   # Hackathon CRUD, slug gen, stats, manual transitions
+        │   └── hackathon-lifecycle.ts # Check-on-access status resolution engine
         ├── storage/
         │   ├── types.ts               # StorageProvider interface + types
         │   ├── index.ts               # getStorageProvider() factory + re-exports
@@ -608,4 +616,4 @@ notification_type: registration, submission, judging, result, announcement
 
 ---
 
-*This document reflects what EXISTS in the codebase as of Phase 2 Part 2 completion (April 17, 2026). It is updated after each development part. Planned tables will be validated against actual implementation during their respective phases.*
+*This document reflects what EXISTS in the codebase as of Phase 2 Part 3 completion (April 17, 2026). It is updated after each development part. Planned tables will be validated against actual implementation during their respective phases.*

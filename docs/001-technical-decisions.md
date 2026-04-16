@@ -152,4 +152,34 @@ HackForge is an enterprise hackathon management platform being built as a solo-d
 
 ---
 
+---
+
+## Decision 7: Hackathon Lifecycle — Check-on-Access Only (No Cron Job for V1)
+
+**Date:** April 17, 2026  
+**Context:** Phase 2 Part 3 — Hackathon List + Management
+
+**Decision:** Implement only check-on-access for automated status transitions in V1. Defer the daily Vercel Cron job to V2.
+
+**How it works:** Every time a hackathon is loaded (via `getHackathonById`, `getHackathonBySlug`, or `getHackathonsByOrgId`), the service compares phase dates against the current time and updates statuses if transitions are due. The status is always correct when someone is looking at it.
+
+**Why no cron:** With InMobi as the only V1 customer, every active hackathon will be regularly visited by admins or participants. The cron job would catch hackathons nobody visits — a scenario that barely exists at this scale. Adding a cron job introduces Vercel tier considerations and scheduled task management for near-zero benefit.
+
+**Trade-off accepted:** If a hackathon is never visited after its phase dates pass, its status will remain stale in the database until someone loads it. This is acceptable for V1.
+
+---
+
+## Decision 8: Restricted Manual Transitions — Only Publish and Archive
+
+**Date:** April 17, 2026  
+**Context:** Phase 2 Part 3 — Hackathon List + Management
+
+**Decision:** Only two status transitions can be triggered manually by an admin: draft→published and completed→archived. All middle-state transitions (published→active, active→judging, judging→completed) are date-driven and handled automatically by the check-on-access lifecycle engine.
+
+**Reasoning:** If an admin wants to influence timing (e.g., start a hackathon early), they should edit the phase dates rather than force a status change. This prevents the status and dates from going out of sync. It's a simpler mental model: dates control lifecycle, admin controls publish/archive intent.
+
+**Alternative considered:** Allowing manual transitions for all forward states (draft→published→active→judging→completed→archived). Rejected because it would let admins create a state where the hackathon status says "active" but the first phase hasn't started yet.
+
+---
+
 *This document is a living record. All significant technical decisions will be added here with date, context, and reasoning.*

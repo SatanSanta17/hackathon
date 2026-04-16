@@ -6,6 +6,27 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Phase 2, Part 3: Hackathon List + Management (April 17, 2026)
+
+#### Added
+- Hackathon list page: filterable, searchable grid of all org hackathons with status badges, template labels, cover image gradients, and creation dates
+- Client-side filters: search by title, status pill selector (All/Draft/Published/Active/Judging/Completed/Archived), date range pickers (Created after/before)
+- Admin context menu per hackathon: Edit, View Landing Page, Publish, Archive, Delete Draft — all role-gated to `org_admin`
+- Delete confirmation dialog (AlertDialog) for draft deletion with soft-delete
+- Check-on-access lifecycle engine (`hackathon-lifecycle.ts`): automatically resolves hackathon and phase statuses based on current date whenever a hackathon is loaded (no cron job needed for V1)
+- API route: `POST /api/hackathons/[hackathonId]/transition` — manual status transitions (draft→published, completed→archived only)
+- API route: `POST /api/hackathons/[hackathonId]/delete` — soft-delete draft hackathons
+- `getHackathonStats()` service method returning total/active/draft counts per org
+- Org dashboard stat cards now show real hackathon counts (replacing Phase 1 placeholder zeros)
+- Loading skeleton for hackathon list page
+- Empty states: distinct messaging for "no hackathons yet" vs "no filter matches" with Create CTA
+
+#### Changed
+- `getHackathonById()`, `getHackathonBySlug()`, `getHackathonsByOrgId()` now run check-on-access status resolution before returning results
+- Manual status transitions restricted to draft→published and completed→archived only; middle-state transitions (published→active, active→judging, judging→completed) are date-driven
+- `transitionStatusSchema` (Zod) narrowed to accept only `'published'` and `'archived'` as target statuses
+- Org dashboard page now fetches real data via `getHackathonStats()` instead of rendering hardcoded values
+
 ### Phase 2, Part 2: Hackathon Creation Wizard + Edit Mode (April 17, 2026)
 
 #### Added
