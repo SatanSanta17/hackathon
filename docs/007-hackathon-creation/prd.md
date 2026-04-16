@@ -108,7 +108,7 @@ Phase 2 is divided into 4 parts. Each part is a self-contained, shippable unit.
 
 | ID | Requirement |
 |----|-------------|
-| P2.R1 | Build the wizard shell: a persistent step indicator (sidebar or top bar) showing all 8 steps with current/completed/upcoming states. Navigation allows clicking back to completed steps. Forward navigation requires the current step to be valid. |
+| P2.R1 | Build the wizard shell: a persistent step indicator (sidebar on desktop, horizontal on mobile) showing all 8 steps with **data-driven three-state status**: complete (green check — data requirements met), incomplete (amber dot — visited but data missing), and not started (empty circle — not yet visited). Steps 2–4 require actual data for "complete" (title set, ≥1 track, all phase dates). Steps 5–7 are optional and show "complete" once the user has visited and saved them. Step 8 (Review) is always "not started" since it's the publish action. **Navigation:** sidebar steps are clickable up to the highest step previously reached (`highestStepReached` ratcheting). Forward navigation beyond the highest reached step is blocked. Step 1 is always viewable (read-only once a draft exists, with a lock notice). |
 | P2.R2 | **Step 1 — Choose Template:** Display the 4 templates (from `hackathon_templates` table) as selectable cards with name, description, and icon. Selecting a template creates a new hackathon record in `draft` status with the template's default phases cloned into the `phases` table. This is the point where the DB record is created. |
 | P2.R3 | **Step 2 — Basic Info:** Title (required), description (textarea, optional), cover image upload (drag-and-drop + click, uses StorageProvider, optional) with a **client-side image cropper** (16:9 aspect ratio enforced for cover images). After file selection, a crop modal opens where the admin adjusts the crop region. The cropped image is generated as a canvas blob on the client and uploaded via StorageProvider — no server-side image processing. Slug is auto-generated from title, shown as a preview (`hackforge.com/hackathons/[slug]`), and editable. If the slug collides, auto-append suffix with an inline message. |
 | P2.R4 | **Step 3 — Tracks/Themes:** Add one or more tracks. Each track has a name (required), description (optional), and resources URL (optional). Tracks can be reordered via drag-and-drop or up/down buttons. At least one track is required. Admin can add, edit, and remove tracks. |
@@ -127,7 +127,8 @@ Phase 2 is divided into 4 parts. Each part is a self-contained, shippable unit.
 
 **Acceptance Criteria:**
 
-- [ ] Wizard renders with 8 steps and a step indicator showing progress
+- [ ] Wizard renders with 8 steps and a data-driven step indicator: complete (green check), incomplete (amber dot), not started (empty circle)
+- [ ] Sidebar steps are clickable up to the highest previously reached step; unreached steps are disabled
 - [ ] Step 1 displays 4 template cards from the database; selecting one creates a draft hackathon
 - [ ] Step 2 allows setting title, description, cover image upload, and slug editing
 - [ ] Slug collision auto-appends suffix with an inline notification message

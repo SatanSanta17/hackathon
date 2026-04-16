@@ -1704,39 +1704,55 @@ Same pattern as tracks — hard delete for child entities.
 interface WizardShellProps {
   orgSlug: string;
   orgId: string;
-  hackathon?: HackathonWithRelations;   // null for create, populated for edit
-  templates: HackathonTemplate[];        // fetched server-side, passed as prop
+  hackathon?: HackathonWithRelations;      // null for create, populated for edit
+  existingDraft?: HackathonWithRelations;   // passed by create page if user has an unfinished draft
+  templates: HackathonTemplate[];           // fetched server-side, passed as prop
   className?: string;
 }
 ```
 
 **State management:**
 - `currentStep: number` (1–8) — tracks which step is active
+- `highestStepReached: number` — ratchets upward via `Math.max(h, next)` on every step transition; controls how far forward sidebar clicks can navigate
 - `hackathonId: string | null` — set after Step 1 creates the draft
 - `hackathonData: Partial<Hackathon>` — local cache of saved data (synced on each step save)
 - `phasesData: Phase[]` — local cache of phases
 - `tracksData: Track[]` — local cache of tracks
 - `prizesData: Prize[]` — local cache of prizes
-- `isSaving: boolean` — shows "Saving..." indicator
-- `saveError: string | null` — shows error toast if save fails
+- `visitedSteps: Set<number>` — tracks which steps the user has visited and left; used for "incomplete" vs "not started" distinction on optional steps
+- `saveStatus: SaveStatus` (`'idle' | 'saving' | 'saved' | 'error'`) — drives the save indicator
+- `showResumeDialog: boolean` — controls the resume-draft dialog on the create page
 
-**Step indicator:**
+**Step indicator (data-driven three-state system):**
 - Rendered as a vertical sidebar on desktop (≥1024px), horizontal stepper on mobile
-- Each step shows: step number, step name, status icon (completed ✓, current •, upcoming ○)
-- Completed steps are clickable (navigate back). Upcoming steps are disabled unless all prior steps are valid.
-- Uses `cn()` for conditional styling: `bg-primary text-primary-foreground` for current, `text-muted-foreground` for upcoming
+- Each step shows: step number, step name, and a **data-driven status icon** with four possible states:
+  - `complete` — green check (`Check` icon, `bg-green-500/15 text-green-600`): data requirements are met
+  - `incomplete` — amber dot (`CircleDot` icon, `bg-amber-500/15 text-amber-600`): step was visited but data requirements not yet met
+  - `not_started` — empty circle (`Circle` icon, border only): not yet visited
+  - `current` — filled dot (bg-current), `bg-primary text-primary-foreground`
+- Completion criteria per step:
+  - **Step 1 (Template):** complete if `hackathonId` exists
+  - **Step 2 (Basic Info):** complete if title is set and ≠ "Untitled Hackathon"; incomplete if visited but title not set
+  - **Step 3 (Tracks):** complete if ≥1 track exists; incomplete if visited but no tracks
+  - **Step 4 (Timeline):** complete if all phases have both `startDate` and `endDate`; incomplete if visited but dates missing
+  - **Step 5 (Team Rules):** optional — complete once visited (has valid defaults)
+  - **Step 6 (Prizes):** optional — complete once visited (zero prizes is valid)
+  - **Step 7 (Rules & FAQs):** optional — complete once visited (empty rules/FAQs is valid)
+  - **Step 8 (Review):** always `not_started` (it's the publish action, never "complete")
+- Sidebar steps are clickable up to `highestStepReached`. Unreached steps show `cursor-not-allowed` and are disabled.
+- Step 1 is always viewable (read-only once a draft exists, with a lock notice).
 
 **Navigation logic:**
-- "Back" button: always available after Step 1. Saves current step data, then decrements `currentStep`.
-- "Next" button: validates current step's form. If valid, saves to DB via API, then increments `currentStep`. If save fails, shows error toast and blocks navigation (P2.R10).
-- "Save Draft" button: persistent in footer on every step (P2.R15). Saves current step's form data without advancing. Shows confirmation toast.
-- Step indicator clicks: same as "Back" — save current, navigate to clicked step.
+- `setCurrentStep` wrapper: ratchets `highestStepReached` via `Math.max`, and marks the departing step as visited in `visitedSteps`.
+- "Back" button: always available after Step 1. Decrements `currentStep`.
+- "Next" button: shown on steps that don't have their own Save & Continue (hidden for steps 2, 4, 5, 7, 8). Increments `currentStep`.
+- "Save Draft" button: persistent in footer on every step (P2.R15). Shows confirmation toast and navigates to the hackathon list.
+- Sidebar clicks: navigate to any step ≤ `highestStepReached`.
 
 **Auto-save implementation (P2.R10):**
-- On every step transition (Next, Back, or step indicator click), the wizard calls `saveCurrentStep()`.
-- `saveCurrentStep()` calls the appropriate API route for the current step's data.
-- UI feedback: a subtle text indicator near the step indicator — "Saving..." (with spinner) → "Saved" (with checkmark, fades after 2s) → "Save failed" (red, persists until next attempt).
-- If save fails, navigation is blocked and an error toast is shown via `sonner`.
+- Steps 2, 4, 5, 7 have their own "Save & Continue" buttons that save to the API before advancing.
+- Steps 3, 6 (Tracks, Prizes) perform immediate API calls on add/edit/delete/reorder — no separate save action needed.
+- UI feedback: a subtle text indicator in the sidebar — "Saving..." (with spinner) → "Saved" (with checkmark, fades after 2s) → "Save failed" (red, persists until next attempt).
 
 **Edit mode (P2.R8 from Part 3, P2.R11):**
 - When `hackathon` prop is provided (edit mode), the wizard pre-fills all steps with existing data.
@@ -2138,7 +2154,7 @@ Part 2 is implemented in 5 increments. Each is a self-contained, pushable commit
 - Navigate to `/dashboard/[orgSlug]/hackathons/create`
 - 4 template cards render from DB
 - Selecting a template creates a draft and advances to Step 2
-- Step indicator shows Step 1 as completed
+- Step indicator shows Step 1 as complete (green check)
 
 #### Increment 3: Steps 2–5 (Basic Info, Tracks, Timeline, Team Rules)
 

@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { Check, Circle, Loader2 } from 'lucide-react';
+import { Check, Circle, CircleDot, Loader2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -130,6 +130,12 @@ export function WizardShell({
     setPrizesData(existingDraft.prizes);
     setHighestStepReached(furthestStep);
     setCurrentStepRaw(furthestStep);
+    // Mark all steps up to furthestStep as visited
+    setVisitedSteps((vs) => {
+      const copy = new Set(vs);
+      for (let i = 1; i < furthestStep; i++) copy.add(i);
+      return copy;
+    });
     setShowResumeDialog(false);
 
     toast.success(`Resumed draft: ${existingDraft.hackathon.title || 'Untitled Hackathon'}`);
@@ -140,10 +146,16 @@ export function WizardShell({
     setShowResumeDialog(false);
   }, []);
 
-  // Wrapper that also ratchets highestStepReached
+  // Wrapper that also ratchets highestStepReached and marks the departing step as visited
   const setCurrentStep = useCallback((stepOrUpdater: number | ((prev: number) => number)) => {
     setCurrentStepRaw((prev) => {
       const next = typeof stepOrUpdater === 'function' ? stepOrUpdater(prev) : stepOrUpdater;
+      // Mark the step we're leaving as visited
+      setVisitedSteps((vs) => {
+        const copy = new Set(vs);
+        copy.add(prev);
+        return copy;
+      });
       setHighestStepReached((h) => Math.max(h, next));
       return next;
     });
@@ -155,6 +167,17 @@ export function WizardShell({
   const [tracksData, setTracksData] = useState<Track[]>(hackathon?.tracks ?? []);
   const [prizesData, setPrizesData] = useState<Prize[]>(hackathon?.prizes ?? []);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
+
+  // Track which optional steps (5, 6, 7) the user has explicitly visited & saved.
+  // In edit mode or when resuming a draft, mark them visited based on data.
+  const [visitedSteps, setVisitedSteps] = useState<Set<number>>(() => {
+    const initial = new Set<number>();
+    if (hackathon) {
+      // Edit mode — all steps considered visited
+      for (let i = 1; i <= 8; i++) initial.add(i);
+    }
+    return initial;
+  });
 
   // ---------------------------------------------------------------------------
   // Save status indicator timeout
@@ -234,16 +257,73 @@ export function WizardShell({
   }, [orgSlug, router]);
 
   // ---------------------------------------------------------------------------
-  // Step completion status
+  // Data-driven step completion status
   // ---------------------------------------------------------------------------
 
+  /**
+   * Three-state system:
+   * - 'complete'    → Data requirements met (green check)
+   * - 'incomplete'  → Visited but data requirements not yet met (amber dot)
+   * - 'not_started' → Not yet visited
+   * - 'current'     → Currently active step
+   *
+   * Steps 5, 6, 7 are optional — they're "complete" once visited & saved
+   * (even with defaults/empty), since those fields are genuinely optional.
+   */
+  type StepDataStatus = 'complete' | 'incomplete' | 'not_started' | 'current';
+
   const getStepStatus = useCallback(
-    (stepNumber: number): 'completed' | 'current' | 'upcoming' => {
-      if (stepNumber < currentStep) return 'completed';
+    (stepNumber: number): StepDataStatus => {
       if (stepNumber === currentStep) return 'current';
-      return 'upcoming';
+
+      // Step-specific data checks
+      switch (stepNumber) {
+        case 1:
+          // Complete if a hackathon draft was created (template selected)
+          return hackathonId ? 'complete' : 'not_started';
+
+        case 2:
+          // Complete if title is set and not the default
+          if (!hackathonId) return 'not_started';
+          if (hackathonData.title && hackathonData.title !== 'Untitled Hackathon') return 'complete';
+          return visitedSteps.has(2) ? 'incomplete' : 'not_started';
+
+        case 3:
+          // Complete if at least 1 track exists
+          if (!hackathonId) return 'not_started';
+          if (tracksData.length > 0) return 'complete';
+          return visitedSteps.has(3) ? 'incomplete' : 'not_started';
+
+        case 4:
+          // Complete if all phases have both start and end dates
+          if (!hackathonId) return 'not_started';
+          if (phasesData.length > 0 && phasesData.every((p) => p.startDate && p.endDate)) return 'complete';
+          return visitedSteps.has(4) ? 'incomplete' : 'not_started';
+
+        case 5:
+          // Optional — complete once visited (has valid defaults)
+          if (!hackathonId) return 'not_started';
+          return visitedSteps.has(5) ? 'complete' : 'not_started';
+
+        case 6:
+          // Optional — complete once visited (zero prizes is valid)
+          if (!hackathonId) return 'not_started';
+          return visitedSteps.has(6) ? 'complete' : 'not_started';
+
+        case 7:
+          // Optional — complete once visited (empty rules/FAQs is valid)
+          if (!hackathonId) return 'not_started';
+          return visitedSteps.has(7) ? 'complete' : 'not_started';
+
+        case 8:
+          // Review step — never "complete" (it's the publish action)
+          return 'not_started';
+
+        default:
+          return 'not_started';
+      }
     },
-    [currentStep],
+    [currentStep, hackathonId, hackathonData, tracksData, phasesData, visitedSteps],
   );
 
   // ---------------------------------------------------------------------------
@@ -371,9 +451,9 @@ export function WizardShell({
       <nav className="flex gap-2 overflow-x-auto lg:w-56 lg:shrink-0 lg:flex-col lg:overflow-x-visible">
         {STEPS.map((step) => {
           const status = getStepStatus(step.number);
-          // A step is clickable if it's within the highest reached
+          // A step is clickable if it's within the highest reached and not active
           const isReachable = step.number <= highestStepReached;
-          const isClickable = isReachable && step.number !== currentStep;
+          const isClickable = isReachable && status !== 'current';
           const isDisabled = !isClickable && status !== 'current';
 
           return (
@@ -387,16 +467,22 @@ export function WizardShell({
                 'whitespace-nowrap lg:whitespace-normal',
                 status === 'current' &&
                   'bg-primary text-primary-foreground',
-                status === 'completed' &&
+                status === 'complete' &&
                   isClickable &&
                   'cursor-pointer text-foreground hover:bg-accent',
-                status === 'completed' &&
+                status === 'complete' &&
                   !isClickable &&
                   'text-muted-foreground',
-                status === 'upcoming' &&
+                status === 'incomplete' &&
+                  isClickable &&
+                  'cursor-pointer text-foreground hover:bg-accent',
+                status === 'incomplete' &&
+                  !isClickable &&
+                  'text-muted-foreground',
+                status === 'not_started' &&
                   isClickable &&
                   'cursor-pointer text-foreground/70 hover:bg-accent hover:text-foreground',
-                status === 'upcoming' &&
+                status === 'not_started' &&
                   !isClickable &&
                   'cursor-not-allowed text-muted-foreground',
               )}
@@ -407,16 +493,20 @@ export function WizardShell({
                   'flex size-6 shrink-0 items-center justify-center rounded-full text-xs',
                   status === 'current' &&
                     'bg-primary-foreground text-primary',
-                  status === 'completed' &&
-                    'bg-primary/10 text-primary',
-                  status === 'upcoming' && isClickable &&
+                  status === 'complete' &&
+                    'bg-green-500/15 text-green-600',
+                  status === 'incomplete' &&
+                    'bg-amber-500/15 text-amber-600',
+                  status === 'not_started' && isClickable &&
                     'border border-foreground/30',
-                  status === 'upcoming' && !isClickable &&
+                  status === 'not_started' && !isClickable &&
                     'border border-muted-foreground/30',
                 )}
               >
-                {status === 'completed' ? (
+                {status === 'complete' ? (
                   <Check className="size-3.5" />
+                ) : status === 'incomplete' ? (
+                  <CircleDot className="size-3.5" />
                 ) : status === 'current' ? (
                   <span className="size-2 rounded-full bg-current" />
                 ) : (
@@ -456,8 +546,8 @@ export function WizardShell({
         {/* Step content */}
         <div className="flex-1">{renderStepContent()}</div>
 
-        {/* Navigation footer — shown on Step 1 only when locked (view-only), always on Steps 2+ */}
-        {(currentStep > 1 || (currentStep === 1 && hackathonId)) && (
+        {/* Navigation footer — hidden on Step 8 (Review has its own actions) */}
+        {currentStep !== 8 && (currentStep > 1 || (currentStep === 1 && hackathonId)) && (
           <div className="mt-6 flex items-center justify-between border-t pt-4">
             <Button variant="outline" onClick={handleBack}>
               Back
