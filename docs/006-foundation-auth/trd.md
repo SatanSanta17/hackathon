@@ -1514,4 +1514,739 @@ Part 2 is implemented in 4 increments.
 
 ---
 
-*Part 3 (Org Management + App Shell + Admin Panel) TRD will be written after Part 2 implementation is complete.*
+## Part 3: Organization Management + App Shell + Admin Panel
+
+**PRD Requirements Covered:** P3.R1 through P3.R11
+
+---
+
+### 3.1 Dependencies (New for Part 3)
+
+```bash
+npx shadcn@latest add avatar badge dialog dropdown-menu select separator sheet sidebar skeleton table tabs tooltip
+```
+
+These shadcn components are needed for the app shell (sidebar, dropdown menus, avatar, tooltips), member management (table, badge, dialog, select), and admin panel (table, tabs). All are part of the radix-nova preset.
+
+No new npm dependencies — shadcn components install from the local preset and only add files to `src/components/ui/`.
+
+---
+
+### 3.2 Zod Validation Schemas — Org (P3.R1, P3.R3, P3.R5)
+
+#### `src/lib/validations/org.ts`
+
+```typescript
+import { z } from 'zod';
+
+export const createOrgSchema = z.object({
+  name: z
+    .string()
+    .min(2, 'Name must be at least 2 characters')
+    .max(100, 'Name must be under 100 characters'),
+  slug: z
+    .string()
+    .min(2, 'Slug must be at least 2 characters')
+    .max(50, 'Slug must be under 50 characters')
+    .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Slug must be lowercase letters, numbers, and hyphens'),
+});
+
+export const inviteMemberSchema = z.object({
+  email: z.string().email('Invalid email address'),
+  role: z.enum(['org_admin', 'member']),
+});
+
+export const changeMemberRoleSchema = z.object({
+  membershipId: z.string().uuid('Invalid membership ID'),
+  role: z.enum(['org_admin', 'member']),
+});
+
+export const removeMemberSchema = z.object({
+  membershipId: z.string().uuid('Invalid membership ID'),
+});
+
+export type CreateOrgInput = z.infer<typeof createOrgSchema>;
+export type InviteMemberInput = z.infer<typeof inviteMemberSchema>;
+export type ChangeMemberRoleInput = z.infer<typeof changeMemberRoleSchema>;
+export type RemoveMemberInput = z.infer<typeof removeMemberSchema>;
+```
+
+**Slug generation helper** (used in the create-org form to auto-generate from name):
+
+```typescript
+// In src/lib/utils.ts or a dedicated helper
+export function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .trim()
+    .replace(/[^\w\s-]/g, '')
+    .replace(/[\s_]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+```
+
+---
+
+### 3.3 Email Template — Org Invite (P3.R3)
+
+#### `src/lib/email/templates.ts` — Add `orgInviteEmail`
+
+```typescript
+export function orgInviteEmail(params: {
+  inviterName: string;
+  orgName: string;
+  role: string;
+  acceptUrl: string;
+}): { subject: string; html: string; text: string };
+```
+
+Uses the same `emailLayout` and `ctaButton` helpers from Part 2. Includes expiry label from `AUTH_CONSTANTS.ORG_INVITE_EXPIRY_DAYS` via a new `AUTH_EXPIRY_LABELS.orgInvite` entry. The email contains the org name, the inviter's name, the assigned role, and a CTA button to accept.
+
+**Update `src/lib/auth/constants.ts`** — add to `AUTH_EXPIRY_LABELS`:
+
+```typescript
+export const AUTH_EXPIRY_LABELS = {
+  emailVerification: formatExpiry(AUTH_CONSTANTS.EMAIL_VERIFICATION_EXPIRY_MINUTES),
+  passwordReset: formatExpiry(AUTH_CONSTANTS.PASSWORD_RESET_EXPIRY_MINUTES),
+  orgInvite: `${AUTH_CONSTANTS.ORG_INVITE_EXPIRY_DAYS} day(s)`,
+} as const;
+```
+
+---
+
+### 3.4 Org Service (P3.R1, P3.R3, P3.R4, P3.R5)
+
+#### `src/lib/services/org-service.ts`
+
+Business logic for organization operations. Framework-agnostic.
+
+```typescript
+import crypto from 'crypto';
+import { eq, and, isNull, count } from 'drizzle-orm';
+
+import { db } from '@/db';
+import { organizations, orgMemberships, orgInvites, users } from '@/db/schema';
+import { getEmailService } from '@/lib/email';
+import { orgInviteEmail } from '@/lib/email/templates';
+import { AUTH_CONSTANTS } from '@/lib/auth/constants';
+
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL!;
+
+export async function createOrg(params: {
+  name: string;
+  slug: string;
+  userId: string;
+}): Promise<{ success: boolean; org?: { id: string; slug: string }; error?: string }>;
+// 1. Check slug uniqueness
+// 2. Insert organization record
+// 3. Insert org_membership (org_admin role, joinedAt = now)
+// 4. Return the org
+
+export async function getOrgBySlug(slug: string): Promise<Organization | null>;
+// Find by slug, exclude soft-deleted
+
+export async function getUserOrgs(userId: string): Promise<Array<{
+  org: Organization;
+  role: string;
+}>>;
+// Return all orgs for a user (via org_memberships, exclude deleted memberships and deleted orgs)
+
+export async function inviteMember(params: {
+  orgId: string;
+  email: string;
+  role: 'org_admin' | 'member';
+  invitedByUserId: string;
+  inviterName: string;
+  orgName: string;
+}): Promise<{ success: boolean; error?: string }>;
+// 1. Check if email is already a member of this org → error
+// 2. Check if a pending (non-expired, non-accepted) invite already exists → error
+// 3. Generate secure token (crypto.randomBytes, stored as SHA-256 hash)
+// 4. Insert org_invites record with expiresAt = now + ORG_INVITE_EXPIRY_DAYS
+// 5. Send invite email with accept URL: /invite/accept?token=<rawToken>
+// 6. Return success
+
+export async function acceptInvite(params: {
+  rawToken: string;
+  userId: string;
+}): Promise<{ success: boolean; orgSlug?: string; error?: string }>;
+// 1. Hash the raw token and find matching invite (not expired, not accepted)
+// 2. Verify user email is verified → error if not
+// 3. Check user isn't already a member → if already, mark invite accepted and return org slug
+// 4. Insert org_membership (role from invite, joinedAt = now)
+// 5. Mark invite as accepted (acceptedAt = now)
+// 6. Return success + org slug for redirect
+
+export async function getOrgMembers(orgId: string): Promise<Array<{
+  membership: OrgMembership;
+  user: { id: string; name: string; email: string; avatarUrl: string | null };
+}>>;
+// Join org_memberships with users, exclude deleted memberships
+
+export async function changeMemberRole(params: {
+  membershipId: string;
+  orgId: string;
+  newRole: 'org_admin' | 'member';
+}): Promise<{ success: boolean; error?: string }>;
+// 1. Find the membership
+// 2. If demoting to member, check this isn't the last org_admin → error
+// 3. Update role
+// 4. Return success
+
+export async function removeMember(params: {
+  membershipId: string;
+  orgId: string;
+}): Promise<{ success: boolean; error?: string }>;
+// 1. Find the membership
+// 2. If member is org_admin, check this isn't the last org_admin → error
+// 3. Soft-delete: set deletedAt on membership (user retains platform account)
+// 4. Return success
+
+export async function getPendingInvitesForUser(email: string): Promise<Array<{
+  invite: OrgInvite;
+  org: Organization;
+}>>;
+// Find non-expired, non-accepted invites matching email. Used to show pending invites on the post-login redirect.
+
+export async function checkUserOrgRole(params: {
+  userId: string;
+  orgId: string;
+}): Promise<{ role: string } | null>;
+// Return the user's role in the org, or null if not a member. Used by RBAC checks.
+```
+
+**Key decisions:**
+- Invite tokens use the same SHA-256 pattern as verification tokens (raw token emailed, hash stored).
+- `removeMember` soft-deletes the membership (sets `deletedAt`), not hard-delete.
+- "Last org_admin" check: count active org_admins before allowing demotion or removal.
+- `acceptInvite` requires the user to be email-verified — enforced in the service, not just the API route.
+
+---
+
+### 3.5 Admin Service (P3.R10)
+
+#### `src/lib/services/admin-service.ts`
+
+Queries for the super admin panel. Framework-agnostic.
+
+```typescript
+import { db } from '@/db';
+import { organizations, orgMemberships, users } from '@/db/schema';
+
+export async function listOrganizations(): Promise<Array<{
+  id: string;
+  name: string;
+  slug: string;
+  memberCount: number;
+  createdAt: Date;
+}>>;
+// Select orgs (exclude soft-deleted), count members per org via subquery or join
+
+export async function listUsers(): Promise<Array<{
+  id: string;
+  name: string;
+  email: string;
+  platformRole: string;
+  emailVerified: boolean;
+  createdAt: Date;
+}>>;
+// Select users (exclude soft-deleted), ordered by createdAt desc
+```
+
+---
+
+### 3.6 RBAC Utilities (P3.R8)
+
+#### `src/lib/auth/require-org-role.ts` — Org-level permission guard
+
+```typescript
+import { NextResponse } from 'next/server';
+
+import { auth } from './auth';
+import { checkUserOrgRole } from '@/lib/services/org-service';
+
+export async function requireOrgRole(params: {
+  orgId: string;
+  allowedRoles: Array<'org_admin' | 'member'>;
+}): Promise<{
+  user: { id: string; email: string; name: string; platformRole: string; isEmailVerified: boolean };
+  role: string;
+} | { error: NextResponse }>;
+```
+
+Combines `requireVerifiedUser()` + org role check in one call. Returns 401 (unauthenticated), 403 (unverified or insufficient org role), or the user + role.
+
+**Usage:**
+
+```typescript
+const result = await requireOrgRole({ orgId, allowedRoles: ['org_admin'] });
+if ('error' in result) return result.error;
+const { user, role } = result;
+```
+
+#### `src/lib/auth/require-super-admin.ts` — Platform-level guard
+
+```typescript
+export async function requireSuperAdmin(): Promise<{
+  user: VerifiedUser;
+} | { error: NextResponse }>;
+```
+
+Returns 401/403 if not authenticated, not verified, or not `super_admin`. Used exclusively by `/admin` API routes.
+
+---
+
+### 3.7 API Routes — Org Management (P3.R1, P3.R3, P3.R4, P3.R5)
+
+All routes use `requireVerifiedUser()` or `requireOrgRole()` for auth/RBAC.
+
+#### `src/app/api/orgs/route.ts` — POST (Create Org)
+
+```
+Auth:     requireVerifiedUser()
+Request:  { name, slug }
+Validate: createOrgSchema
+Call:     orgService.createOrg()
+Success:  201 { message: "Organization created.", org: { id, slug } }
+Error:    400 (validation) | 409 (slug taken) | 401/403 | 500
+```
+
+#### `src/app/api/orgs/route.ts` — GET (List User's Orgs)
+
+```
+Auth:     requireVerifiedUser()
+Call:     orgService.getUserOrgs(user.id)
+Success:  200 { orgs: [...] }
+Error:    401/403 | 500
+```
+
+#### `src/app/api/orgs/[orgId]/members/route.ts` — GET (List Members)
+
+```
+Auth:     requireOrgRole({ orgId, allowedRoles: ['org_admin', 'member'] })
+Call:     orgService.getOrgMembers(orgId)
+Success:  200 { members: [...] }
+Error:    401/403 | 500
+```
+
+#### `src/app/api/orgs/[orgId]/members/invite/route.ts` — POST (Invite Member)
+
+```
+Auth:     requireOrgRole({ orgId, allowedRoles: ['org_admin'] })
+Request:  { email, role }
+Validate: inviteMemberSchema
+Call:     orgService.inviteMember()
+Success:  201 { message: "Invitation sent." }
+Error:    400 (validation / already member / pending invite) | 401/403 | 500
+```
+
+#### `src/app/api/orgs/[orgId]/members/[membershipId]/role/route.ts` — PATCH (Change Role)
+
+```
+Auth:     requireOrgRole({ orgId, allowedRoles: ['org_admin'] })
+Request:  { role }
+Validate: changeMemberRoleSchema (membershipId from URL param)
+Call:     orgService.changeMemberRole()
+Success:  200 { message: "Role updated." }
+Error:    400 (last admin) | 401/403 | 500
+```
+
+#### `src/app/api/orgs/[orgId]/members/[membershipId]/route.ts` — DELETE (Remove Member)
+
+```
+Auth:     requireOrgRole({ orgId, allowedRoles: ['org_admin'] })
+Call:     orgService.removeMember()
+Success:  200 { message: "Member removed." }
+Error:    400 (last admin) | 401/403 | 500
+```
+
+#### `src/app/api/invite/accept/route.ts` — POST (Accept Invite)
+
+```
+Auth:     requireVerifiedUser()
+Request:  { token }
+Call:     orgService.acceptInvite()
+Success:  200 { message: "Joined organization.", orgSlug }
+Error:    400 (invalid/expired token / not verified) | 401/403 | 500
+```
+
+---
+
+### 3.8 API Routes — Admin Panel (P3.R10)
+
+#### `src/app/api/admin/orgs/route.ts` — GET
+
+```
+Auth:     requireSuperAdmin()
+Call:     adminService.listOrganizations()
+Success:  200 { organizations: [...] }
+Error:    401/403 | 500
+```
+
+#### `src/app/api/admin/users/route.ts` — GET
+
+```
+Auth:     requireSuperAdmin()
+Call:     adminService.listUsers()
+Success:  200 { users: [...] }
+Error:    401/403 | 500
+```
+
+---
+
+### 3.9 SessionProvider Wrapper (P3.R6)
+
+#### `src/components/providers/session-provider.tsx`
+
+NextAuth's `useSession()` hook (used by the verification banner, user menu, org switcher) requires a `<SessionProvider>` client component wrapping the tree.
+
+```typescript
+'use client';
+
+import { SessionProvider as NextAuthSessionProvider } from 'next-auth/react';
+
+export function SessionProvider({ children }: { children: React.ReactNode }) {
+  return <NextAuthSessionProvider>{children}</NextAuthSessionProvider>;
+}
+```
+
+Imported in the dashboard layout to wrap dashboard content. NOT placed in the root layout (auth pages don't need sessions loaded client-side).
+
+---
+
+### 3.10 App Shell — Dashboard Layout (P3.R6, P3.R9, P3.R11)
+
+#### `src/app/(dashboard)/layout.tsx`
+
+The dashboard layout composes the app shell:
+
+```
+┌──────────────────────────────────────────────────────┐
+│ [VerificationBanner — if unverified]                 │
+├────────────┬─────────────────────────────────────────┤
+│            │  [TopBar: org name/switcher + user menu]│
+│  Sidebar   ├─────────────────────────────────────────┤
+│  (nav)     │                                         │
+│            │  [Page Content — children]               │
+│            │                                         │
+└────────────┴─────────────────────────────────────────┘
+```
+
+**Structure:**
+
+```typescript
+import { SessionProvider } from '@/components/providers/session-provider';
+import { VerificationBanner } from '@/components/verification-banner';
+import { AppSidebar } from './_components/app-sidebar';
+import { TopBar } from './_components/top-bar';
+
+export default async function DashboardLayout({ children, params }) {
+  return (
+    <SessionProvider>
+      <VerificationBanner />
+      <div className="flex flex-1">
+        <AppSidebar />
+        <div className="flex flex-1 flex-col">
+          <TopBar />
+          <main className="flex-1 p-6">{children}</main>
+        </div>
+      </div>
+    </SessionProvider>
+  );
+}
+```
+
+**Org context:** The dashboard is scoped to a specific org via the URL: `/dashboard/[orgSlug]/...`. The layout reads `orgSlug` from the route params, fetches the org, and validates the user is a member. If invalid, redirects to org selection.
+
+Revised route structure:
+
+```
+src/app/(dashboard)/dashboard/[orgSlug]/
+  layout.tsx          — fetches org, validates membership, provides org context
+  page.tsx            — org dashboard (stat cards)
+  members/
+    page.tsx          — member list + management
+    _components/
+      member-table.tsx
+      invite-dialog.tsx
+      role-select.tsx
+  settings/           — placeholder for future
+    page.tsx
+  hackathons/         — placeholder for future
+    page.tsx
+```
+
+#### `src/app/(dashboard)/dashboard/page.tsx` — Org Selection / Redirect
+
+If the user navigates to `/dashboard` (no org slug), this page:
+1. Fetches user's orgs
+2. If user has exactly one org → redirect to `/dashboard/[slug]`
+3. If user has multiple orgs → show org picker
+4. If user has zero orgs → show "Create Organization" prompt (disabled with verification message for unverified users)
+
+---
+
+### 3.11 App Shell — Sidebar (P3.R6)
+
+#### `src/app/(dashboard)/_components/app-sidebar.tsx`
+
+Uses shadcn's `Sidebar` component (collapsible). Navigation items:
+
+| Icon | Label | Route | Visible To |
+|------|-------|-------|-----------|
+| LayoutDashboard | Dashboard | `/dashboard/[orgSlug]` | All |
+| Trophy | Hackathons | `/dashboard/[orgSlug]/hackathons` | All |
+| Users | Members | `/dashboard/[orgSlug]/members` | All (manage actions gated to org_admin) |
+| Settings | Settings | `/dashboard/[orgSlug]/settings` | All (edit actions gated to org_admin) |
+
+The sidebar highlights the active route. On mobile, it collapses into a sheet (hamburger menu trigger in the top bar).
+
+---
+
+### 3.12 App Shell — Top Bar (P3.R6, P3.R9)
+
+#### `src/app/(dashboard)/_components/top-bar.tsx`
+
+Contains:
+- **Mobile sidebar trigger** (hamburger icon, visible on small screens)
+- **Org switcher** (dropdown showing all orgs the user belongs to, with the current org highlighted). Only shown when user belongs to 2+ orgs. Links to `/dashboard/[otherOrgSlug]`.
+- **Current org name** (displayed as breadcrumb or heading)
+- **User menu** (dropdown): user name, email, separator, "Log out" button (calls `signOut()`)
+
+Uses shadcn `DropdownMenu`, `Avatar`, `Separator`.
+
+---
+
+### 3.13 Org Dashboard Page (P3.R7)
+
+#### `src/app/(dashboard)/dashboard/[orgSlug]/page.tsx`
+
+Skeleton dashboard with placeholder stat cards:
+
+```
+┌─────────────┐  ┌─────────────┐  ┌─────────────┐
+│ Hackathons   │  │ Participants │  │ Upcoming     │
+│      0       │  │      0       │  │   None       │
+└─────────────┘  └─────────────┘  └─────────────┘
+```
+
+Uses shadcn `Card` components. Values are hardcoded to 0/None in V1 — wired to real data in Phase 2+.
+
+**Co-located components:** `_components/stat-card.tsx`
+
+---
+
+### 3.14 Create Org Page (P3.R1, P3.R2)
+
+#### `src/app/(dashboard)/dashboard/create-org/page.tsx`
+
+Accessed when user has no orgs, or via a "Create new org" option.
+
+- **Fields:** Organization Name, Slug (auto-generated from name, editable)
+- **Validation:** Client-side via react-hook-form + zodResolver(createOrgSchema)
+- **On submit:** POST to `/api/orgs`. On success, redirect to `/dashboard/[slug]`.
+- **Requires verified email** — if unverified, show the form disabled with a message.
+
+**Co-located components:** `_components/create-org-form.tsx`
+
+---
+
+### 3.15 Invite Accept Page (P3.R4)
+
+#### `src/app/(auth)/invite/accept/page.tsx`
+
+- **Route:** `/invite/accept?token=xxx`
+- **On load:** If user is logged in and verified, auto-POST to `/api/invite/accept`. Show success → redirect to org dashboard.
+- **If not logged in:** Show "Log in to accept this invite" with a link to `/login?callbackUrl=/invite/accept?token=xxx`.
+- **If logged in but unverified:** Show "Verify your email to accept this invite".
+- **If token is invalid/expired:** Show error with explanation.
+
+This page lives under the `(auth)` route group since it's a transitional page, not part of the dashboard shell.
+
+---
+
+### 3.16 Member Management Page (P3.R5)
+
+#### `src/app/(dashboard)/dashboard/[orgSlug]/members/page.tsx`
+
+Displays a table of org members and provides management actions for org_admins.
+
+**Member table columns:** Avatar, Name, Email, Role (badge), Joined Date, Actions (dropdown)
+
+**Actions (visible to `org_admin` only):**
+- **Change role** — opens a dialog with a role select dropdown
+- **Remove from org** — opens a confirmation dialog
+
+**Edge cases enforced at API level (also reflected in UI):**
+- Cannot demote the last remaining `org_admin` — button disabled with tooltip
+- Cannot remove the last remaining `org_admin` — button disabled with tooltip
+- Cannot remove yourself (the current user must leave via a separate flow — deferred)
+
+**Invite section:** Above the table, org_admins see an "Invite Member" button that opens a dialog (email + role selector). Members see a read-only list.
+
+**Empty state:** "No members yet" (shouldn't happen — creator is always first member)
+
+**Co-located components:**
+- `_components/member-table.tsx` — client component, data table
+- `_components/invite-dialog.tsx` — client component, invite form in a dialog
+- `_components/role-select.tsx` — shared role dropdown (used in invite + change role)
+
+---
+
+### 3.17 Admin Panel (P3.R10)
+
+#### `src/app/(dashboard)/admin/layout.tsx`
+
+Admin layout — similar to dashboard but without org context. Server-side check: fetch session, verify `platformRole === 'super_admin'`, redirect to `/dashboard` if not.
+
+#### `src/app/(dashboard)/admin/page.tsx`
+
+Two tabs: **Organizations** and **Users**.
+
+**Organizations tab:**
+- Table: Name, Slug, Member Count, Created Date
+- Read-only in V1 (no admin actions on orgs)
+
+**Users tab:**
+- Table: Name, Email, Platform Role (badge), Email Verified (icon), Created Date
+- Read-only in V1 (no admin actions on users)
+
+**Co-located components:**
+- `_components/orgs-table.tsx`
+- `_components/users-table.tsx`
+
+Uses shadcn `Tabs`, `Table`, `Badge`.
+
+---
+
+### 3.18 Middleware Update (P3.R8, P3.R10)
+
+Update `src/middleware.ts` to add `/admin` page protection (already in the matcher from Part 2 — the middleware redirects unauthenticated users). The `super_admin` role check happens at the layout/API level, not middleware (middleware only has the JWT, which has `platformRole` — but doing role redirects in middleware is fragile; better to check at the page level and show a 403 or redirect).
+
+No changes to the middleware file itself — the existing matcher already covers `/admin/:path*`.
+
+---
+
+### 3.19 Implementation Increments
+
+Part 3 is implemented in 4 increments.
+
+#### Increment 1: Org Service + Org API Routes + Validation Schemas + Invite Email Template
+
+**What:** Install shadcn components, create org validation schemas, add org invite email template, build the org service and admin service, create all org and admin API routes, add RBAC utilities.
+
+**Files created/modified:**
+- `src/components/ui/*` — new shadcn components (avatar, badge, dialog, dropdown-menu, select, separator, sheet, sidebar, skeleton, table, tabs, tooltip)
+- `src/lib/validations/org.ts` — Zod schemas (createOrg, inviteMember, changeMemberRole, removeMember)
+- `src/lib/utils.ts` — add `slugify()` helper
+- `src/lib/email/templates.ts` — add `orgInviteEmail` template
+- `src/lib/auth/constants.ts` — add `orgInvite` to `AUTH_EXPIRY_LABELS`
+- `src/lib/auth/require-org-role.ts` — Org-level RBAC guard
+- `src/lib/auth/require-super-admin.ts` — Platform-level super admin guard
+- `src/lib/services/org-service.ts` — Org business logic
+- `src/lib/services/admin-service.ts` — Admin panel queries
+- `src/app/api/orgs/route.ts` — POST (create org), GET (list user orgs)
+- `src/app/api/orgs/[orgId]/members/route.ts` — GET (list members)
+- `src/app/api/orgs/[orgId]/members/invite/route.ts` — POST (invite)
+- `src/app/api/orgs/[orgId]/members/[membershipId]/role/route.ts` — PATCH (change role)
+- `src/app/api/orgs/[orgId]/members/[membershipId]/route.ts` — DELETE (remove)
+- `src/app/api/invite/accept/route.ts` — POST (accept invite)
+- `src/app/api/admin/orgs/route.ts` — GET (list all orgs)
+- `src/app/api/admin/users/route.ts` — GET (list all users)
+
+**Verify:** `tsc --noEmit` passes. Test create-org and invite APIs with curl.
+
+#### Increment 2: App Shell — Dashboard Layout + Sidebar + Top Bar + SessionProvider
+
+**What:** Build the SessionProvider wrapper, dashboard layout with sidebar and top bar, org switcher, user menu. Set up the `(dashboard)/dashboard/[orgSlug]` route structure.
+
+**Files created/modified:**
+- `src/components/providers/session-provider.tsx` — SessionProvider wrapper
+- `src/app/(dashboard)/layout.tsx` — Outer dashboard layout (SessionProvider + VerificationBanner)
+- `src/app/(dashboard)/dashboard/[orgSlug]/layout.tsx` — Org-scoped layout (fetches org, validates membership)
+- `src/app/(dashboard)/dashboard/page.tsx` — Org selection / redirect page
+- `src/app/(dashboard)/_components/app-sidebar.tsx` — Sidebar navigation
+- `src/app/(dashboard)/_components/top-bar.tsx` — Top bar with org switcher and user menu
+
+**Verify:** `tsc --noEmit` passes. Dashboard renders with sidebar and top bar. Org switcher shows user's orgs.
+
+#### Increment 3: Org Dashboard + Create Org + Invite Accept + Member Management Pages
+
+**What:** Build the org dashboard page (stat cards), create-org page, invite accept page, and member management page with invite dialog, role change, and remove actions.
+
+**Files created/modified:**
+- `src/app/(dashboard)/dashboard/[orgSlug]/page.tsx` — Org dashboard
+- `src/app/(dashboard)/dashboard/[orgSlug]/_components/stat-card.tsx` — Stat card component
+- `src/app/(dashboard)/dashboard/create-org/page.tsx` — Create org page
+- `src/app/(dashboard)/dashboard/create-org/_components/create-org-form.tsx` — Create org form
+- `src/app/(auth)/invite/accept/page.tsx` — Invite accept page
+- `src/app/(dashboard)/dashboard/[orgSlug]/members/page.tsx` — Member management
+- `src/app/(dashboard)/dashboard/[orgSlug]/members/_components/member-table.tsx` — Member table
+- `src/app/(dashboard)/dashboard/[orgSlug]/members/_components/invite-dialog.tsx` — Invite dialog
+- `src/app/(dashboard)/dashboard/[orgSlug]/members/_components/role-select.tsx` — Role select
+- `src/app/(dashboard)/dashboard/[orgSlug]/hackathons/page.tsx` — Placeholder
+- `src/app/(dashboard)/dashboard/[orgSlug]/settings/page.tsx` — Placeholder
+
+**Verify:** `tsc --noEmit` passes. Full flow: create org → see dashboard → invite member → member accepts → see member in table → change role → remove member.
+
+#### Increment 4: Admin Panel + Loading/Empty States + End-of-Part Audit
+
+**What:** Build the admin panel (orgs table, users table, tabs), add loading states (skeletons) and empty states to all pages, and run the end-of-part audit.
+
+**Files created/modified:**
+- `src/app/(dashboard)/admin/layout.tsx` — Admin layout with super_admin check
+- `src/app/(dashboard)/admin/page.tsx` — Admin panel with tabs
+- `src/app/(dashboard)/admin/_components/orgs-table.tsx` — Orgs data table
+- `src/app/(dashboard)/admin/_components/users-table.tsx` — Users data table
+- Various pages — add `loading.tsx` files for Suspense boundaries and skeleton UIs
+- Various pages — add empty state components where applicable
+
+**Verify:** `tsc --noEmit` passes. Super admin can access `/admin`. Non-super-admin is redirected. All pages have loading and empty states.
+
+---
+
+### 3.20 Files Changed Summary
+
+| File | Action | Requirement |
+|------|--------|-------------|
+| `src/components/ui/*` (12 components) | Created | P3.R6, P3.R5, P3.R10 |
+| `src/lib/validations/org.ts` | Created | P3.R1, P3.R3, P3.R5 |
+| `src/lib/utils.ts` | Modified | P3.R1 (add slugify) |
+| `src/lib/email/templates.ts` | Modified | P3.R3 (add orgInviteEmail) |
+| `src/lib/auth/constants.ts` | Modified | P3.R3 (add orgInvite expiry label) |
+| `src/lib/auth/require-org-role.ts` | Created | P3.R8 |
+| `src/lib/auth/require-super-admin.ts` | Created | P3.R10 |
+| `src/lib/services/org-service.ts` | Created | P3.R1, P3.R3, P3.R4, P3.R5 |
+| `src/lib/services/admin-service.ts` | Created | P3.R10 |
+| `src/app/api/orgs/route.ts` | Created | P3.R1 |
+| `src/app/api/orgs/[orgId]/members/route.ts` | Created | P3.R5 |
+| `src/app/api/orgs/[orgId]/members/invite/route.ts` | Created | P3.R3 |
+| `src/app/api/orgs/[orgId]/members/[membershipId]/role/route.ts` | Created | P3.R5 |
+| `src/app/api/orgs/[orgId]/members/[membershipId]/route.ts` | Created | P3.R5 |
+| `src/app/api/invite/accept/route.ts` | Created | P3.R4 |
+| `src/app/api/admin/orgs/route.ts` | Created | P3.R10 |
+| `src/app/api/admin/users/route.ts` | Created | P3.R10 |
+| `src/components/providers/session-provider.tsx` | Created | P3.R6 |
+| `src/app/(dashboard)/layout.tsx` | Created | P3.R6 |
+| `src/app/(dashboard)/dashboard/page.tsx` | Created | P3.R2 |
+| `src/app/(dashboard)/dashboard/[orgSlug]/layout.tsx` | Created | P3.R6, P3.R8 |
+| `src/app/(dashboard)/dashboard/[orgSlug]/page.tsx` | Created | P3.R7 |
+| `src/app/(dashboard)/dashboard/[orgSlug]/_components/stat-card.tsx` | Created | P3.R7 |
+| `src/app/(dashboard)/dashboard/create-org/page.tsx` | Created | P3.R1 |
+| `src/app/(dashboard)/dashboard/create-org/_components/create-org-form.tsx` | Created | P3.R1 |
+| `src/app/(auth)/invite/accept/page.tsx` | Created | P3.R4 |
+| `src/app/(dashboard)/dashboard/[orgSlug]/members/page.tsx` | Created | P3.R5 |
+| `src/app/(dashboard)/dashboard/[orgSlug]/members/_components/member-table.tsx` | Created | P3.R5 |
+| `src/app/(dashboard)/dashboard/[orgSlug]/members/_components/invite-dialog.tsx` | Created | P3.R3 |
+| `src/app/(dashboard)/dashboard/[orgSlug]/members/_components/role-select.tsx` | Created | P3.R5 |
+| `src/app/(dashboard)/dashboard/[orgSlug]/hackathons/page.tsx` | Created | P3.R6 (placeholder) |
+| `src/app/(dashboard)/dashboard/[orgSlug]/settings/page.tsx` | Created | P3.R6 (placeholder) |
+| `src/app/(dashboard)/admin/layout.tsx` | Created | P3.R10 |
+| `src/app/(dashboard)/admin/page.tsx` | Created | P3.R10 |
+| `src/app/(dashboard)/admin/_components/orgs-table.tsx` | Created | P3.R10 |
+| `src/app/(dashboard)/admin/_components/users-table.tsx` | Created | P3.R10 |
+| `src/middleware.ts` | Unchanged | P3.R8 (already covers /admin) |
+
+---
+
+*Phase 1 TRD is now complete. After Part 3 implementation, update `docs/004-architecture.md` with the final folder structure and `CHANGELOG.md` with the Phase 1 summary.*
