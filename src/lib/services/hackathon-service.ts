@@ -463,6 +463,133 @@ export async function softDeleteHackathon(params: {
 }
 
 // ---------------------------------------------------------------------------
+// Get Drafts by User (resume-draft flow — P2.R11)
+// ---------------------------------------------------------------------------
+
+export async function getDraftsByUser(params: {
+  orgId: string;
+  userId: string;
+}): Promise<Hackathon[]> {
+  console.log('[hackathon-service] getDraftsByUser:', { orgId: params.orgId, userId: params.userId });
+
+  const result = await db.query.hackathons.findMany({
+    where: and(
+      eq(hackathons.orgId, params.orgId),
+      eq(hackathons.createdBy, params.userId),
+      eq(hackathons.status, 'draft'),
+      isNull(hackathons.deletedAt),
+    ),
+    orderBy: desc(hackathons.updatedAt),
+  });
+
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// Reorder Tracks (batch update order values)
+// ---------------------------------------------------------------------------
+
+export async function reorderTracks(params: {
+  hackathonId: string;
+  orgId: string;
+  trackIds: string[];
+}): Promise<{ success: boolean; error?: string }> {
+  console.log('[hackathon-service] reorderTracks:', {
+    hackathonId: params.hackathonId,
+    count: params.trackIds.length,
+  });
+
+  try {
+    // Verify hackathon belongs to org
+    const hackathon = await db.query.hackathons.findFirst({
+      where: and(
+        eq(hackathons.id, params.hackathonId),
+        eq(hackathons.orgId, params.orgId),
+        isNull(hackathons.deletedAt),
+      ),
+      columns: { id: true },
+    });
+
+    if (!hackathon) {
+      return { success: false, error: 'HACKATHON_NOT_FOUND' };
+    }
+
+    for (let i = 0; i < params.trackIds.length; i++) {
+      await db
+        .update(tracks)
+        .set({ order: i, updatedAt: new Date() })
+        .where(
+          and(
+            eq(tracks.id, params.trackIds[i]),
+            eq(tracks.hackathonId, params.hackathonId),
+          ),
+        );
+    }
+
+    console.log('[hackathon-service] reorderTracks success');
+    return { success: true };
+  } catch (err) {
+    console.error('[hackathon-service] reorderTracks failed:', err);
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Failed to reorder tracks',
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Reorder Prizes (batch update rank values)
+// ---------------------------------------------------------------------------
+
+export async function reorderPrizes(params: {
+  hackathonId: string;
+  orgId: string;
+  prizeIds: string[];
+}): Promise<{ success: boolean; error?: string }> {
+  console.log('[hackathon-service] reorderPrizes:', {
+    hackathonId: params.hackathonId,
+    count: params.prizeIds.length,
+  });
+
+  try {
+    // Verify hackathon belongs to org
+    const hackathon = await db.query.hackathons.findFirst({
+      where: and(
+        eq(hackathons.id, params.hackathonId),
+        eq(hackathons.orgId, params.orgId),
+        isNull(hackathons.deletedAt),
+      ),
+      columns: { id: true },
+    });
+
+    if (!hackathon) {
+      return { success: false, error: 'HACKATHON_NOT_FOUND' };
+    }
+
+    for (let i = 0; i < params.prizeIds.length; i++) {
+      await db
+        .update(prizes)
+        .set({ rank: i + 1, updatedAt: new Date() })
+        .where(
+          and(
+            eq(prizes.id, params.prizeIds[i]),
+            eq(prizes.hackathonId, params.hackathonId),
+          ),
+        );
+    }
+
+    console.log('[hackathon-service] reorderPrizes success');
+    return { success: true };
+  } catch (err) {
+    console.error('[hackathon-service] reorderPrizes failed:', err);
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Failed to reorder prizes',
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Slug Generation (P1.R13)
 // ---------------------------------------------------------------------------
 
