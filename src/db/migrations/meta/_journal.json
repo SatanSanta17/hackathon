@@ -8,6 +8,13 @@
       "when": 1776330995972,
       "tag": "0000_famous_bug",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1776331447455,
+      "tag": "0001_whole_brood",
+      "breakpoints": true
     }
   ]
 }

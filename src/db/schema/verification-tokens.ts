@@ -1,3 +1,4 @@
+import { type InferInsertModel, type InferSelectModel } from 'drizzle-orm';
 import { pgTable, uuid, text, timestamp, index } from 'drizzle-orm/pg-core';
 
 import { users } from './users';
@@ -13,3 +14,6 @@ export const verificationTokens = pgTable('verification_tokens', {
 }, (table) => [
   index('verification_tokens_user_id_idx').on(table.userId),
 ]);
+
+export type VerificationToken = InferSelectModel<typeof verificationTokens>;
+export type NewVerificationToken = InferInsertModel<typeof verificationTokens>;

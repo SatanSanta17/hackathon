@@ -71,50 +71,57 @@ HackForge is a multi-tenant hackathon management platform deployed as a Next.js 
 > **Note:** This section reflects what CURRENTLY EXISTS in the codebase. It is updated after each development phase. Do not pre-fill with planned-but-unbuilt structures.
 
 ```
-hackforge/                          # ← PROJECT ROOT (to be created in Phase 1)
-├── CLAUDE.md                       # Session bootstrap for AI assistants
-├── CHANGELOG.md                    # What shipped, when
-├── docs/                           # Project documentation
+hackforge/                              # PROJECT ROOT
+├── .env.example                        # Environment variable template
+├── CLAUDE.md                           # Session bootstrap for AI assistants
+├── CHANGELOG.md                        # What shipped, when
+├── components.json                     # shadcn configuration (radix-nova)
+├── docs/                               # Project documentation
 │   ├── 000-project-context.md
 │   ├── 001-technical-decisions.md
 │   ├── 002-v1-development-phases.md
 │   ├── 003-coding-conventions.md
-│   ├── 004-architecture.md         # ← THIS FILE
-│   └── 005-development-workflow.md
-└── src/                            # ← TO BE CREATED IN PHASE 1
-    ├── app/                        # Next.js App Router
-    │   ├── (auth)/                 # Auth pages (login, signup, forgot-password)
-    │   ├── (dashboard)/            # Protected app routes
-    │   │   ├── layout.tsx          # Dashboard shell (sidebar, topbar)
-    │   │   ├── page.tsx            # Org dashboard
-    │   │   └── hackathons/         # Hackathon management routes
-    │   ├── (public)/               # Public pages (hackathon landing pages)
-    │   ├── api/                    # API route handlers
-    │   └── layout.tsx              # Root layout
-    ├── components/                 # Shared components
-    │   └── ui/                     # shadcn/ui primitives
-    ├── db/                         # Database layer
-    │   ├── index.ts                # Drizzle client instance
-    │   ├── schema/                 # Table definitions
-    │   │   ├── index.ts            # Barrel export
-    │   │   ├── enums.ts            # Postgres enums
-    │   │   ├── organizations.ts
-    │   │   ├── users.ts
-    │   │   ├── hackathons.ts
-    │   │   ├── phases.ts
-    │   │   ├── teams.ts
-    │   │   ├── submissions.ts
-    │   │   └── evaluations.ts
-    │   └── migrations/             # Drizzle-kit generated migrations
-    ├── lib/                        # Shared utilities
-    │   ├── auth/                   # NextAuth config + helpers
-    │   ├── email/                  # Resend client + React Email templates
-    │   ├── hooks/                  # Custom React hooks
-    │   ├── services/               # Business logic (framework-agnostic)
-    │   ├── storage/                # StorageProvider interface + implementations
-    │   ├── utils.ts                # cn(), formatDate(), etc.
-    │   └── validations/            # Shared Zod schemas
-    └── types/                      # Global TypeScript types
+│   ├── 004-architecture.md             # ← THIS FILE
+│   ├── 005-development-workflow.md
+│   └── 006-foundation-auth/            # Phase 1 PRD + TRD
+│       ├── prd.md
+│       └── trd.md
+├── drizzle.config.ts                   # Drizzle Kit configuration
+├── eslint.config.mjs                   # ESLint 9 flat config
+├── next.config.ts                      # Next.js 16 configuration
+├── postcss.config.mjs                  # PostCSS config (@tailwindcss/postcss)
+├── tsconfig.json                       # TypeScript strict mode config
+└── src/
+    ├── app/
+    │   ├── (auth)/                     # Auth pages (Part 2 — empty)
+    │   ├── (dashboard)/                # Protected app routes (Part 3 — empty)
+    │   ├── (public)/                   # Public pages (Phase 2+ — empty)
+    │   ├── api/                        # API route handlers (Part 2+ — empty)
+    │   ├── globals.css                 # Dual-tone design tokens (admin + competitive)
+    │   ├── layout.tsx                  # Root layout (Geist + Space Grotesk fonts, Toaster)
+    │   └── page.tsx                    # Temporary landing page
+    ├── components/
+    │   └── ui/                         # shadcn components (button, card, input, label, sonner)
+    ├── db/
+    │   ├── index.ts                    # Drizzle client instance (postgres.js driver)
+    │   ├── schema/
+    │   │   ├── index.ts                # Barrel export
+    │   │   ├── enums.ts                # platform_role, org_role
+    │   │   ├── users.ts                # users table + User/NewUser types
+    │   │   ├── organizations.ts        # organizations table + types
+    │   │   ├── org-memberships.ts      # org_memberships table + types
+    │   │   ├── org-invites.ts          # org_invites table + types
+    │   │   └── verification-tokens.ts  # verification_tokens table + types
+    │   └── migrations/                 # Drizzle-kit generated migrations
+    ├── lib/
+    │   ├── auth/                       # NextAuth config + helpers (Part 2 — empty)
+    │   ├── email/                      # Resend client + templates (Part 2 — empty)
+    │   ├── hooks/                      # Custom React hooks (Part 3 — empty)
+    │   ├── services/                   # Business logic (Part 2+ — empty)
+    │   ├── storage/                    # StorageProvider interface (Phase 4 — empty)
+    │   ├── utils.ts                    # cn() helper (shadcn)
+    │   └── validations/                # Shared Zod schemas (Part 2 — empty)
+    └── types/                          # Global TypeScript types (Part 2 — empty)
 ```
 
 ---

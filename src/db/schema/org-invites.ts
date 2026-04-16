@@ -1,3 +1,4 @@
+import { type InferInsertModel, type InferSelectModel } from 'drizzle-orm';
 import { pgTable, uuid, text, timestamp, index } from 'drizzle-orm/pg-core';
 
 import { orgRoleEnum } from './enums';
@@ -14,7 +15,11 @@ export const orgInvites = pgTable('org_invites', {
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
   acceptedAt: timestamp('accepted_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   index('org_invites_email_idx').on(table.email),
   index('org_invites_token_idx').on(table.token),
 ]);
+
+export type OrgInvite = InferSelectModel<typeof orgInvites>;
+export type NewOrgInvite = InferInsertModel<typeof orgInvites>;
