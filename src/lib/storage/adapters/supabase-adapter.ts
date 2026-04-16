@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 import type { StorageProvider, StorageObject, UploadResult, UploadOptions } from '../types';
 
@@ -11,7 +11,7 @@ const BUCKET_NAME = 'hackforge';
  * Files are stored in the 'hackforge' bucket.
  */
 export class SupabaseStorageProvider implements StorageProvider {
-  private client;
+  private client: SupabaseClient;
 
   constructor() {
     const supabaseUrl = process.env.SUPABASE_STORAGE_URL;

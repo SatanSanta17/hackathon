@@ -126,6 +126,35 @@ export async function createHackathon(params: {
 }
 
 // ---------------------------------------------------------------------------
+// Fetch Hackathon Relations (private helper — DRY)
+// ---------------------------------------------------------------------------
+
+async function fetchHackathonRelations(
+  hackathonId: string
+): Promise<{ phases: Phase[]; tracks: Track[]; prizes: Prize[] }> {
+  const [hackathonPhases, hackathonTracks, hackathonPrizes] = await Promise.all([
+    db.query.phases.findMany({
+      where: eq(phases.hackathonId, hackathonId),
+      orderBy: phases.order,
+    }),
+    db.query.tracks.findMany({
+      where: eq(tracks.hackathonId, hackathonId),
+      orderBy: tracks.order,
+    }),
+    db.query.prizes.findMany({
+      where: eq(prizes.hackathonId, hackathonId),
+      orderBy: prizes.rank,
+    }),
+  ]);
+
+  return {
+    phases: hackathonPhases,
+    tracks: hackathonTracks,
+    prizes: hackathonPrizes,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Get Hackathon by ID (admin operations)
 // ---------------------------------------------------------------------------
 
@@ -145,27 +174,8 @@ export async function getHackathonById(params: {
 
   if (!hackathon) return null;
 
-  const [hackathonPhases, hackathonTracks, hackathonPrizes] = await Promise.all([
-    db.query.phases.findMany({
-      where: eq(phases.hackathonId, hackathon.id),
-      orderBy: phases.order,
-    }),
-    db.query.tracks.findMany({
-      where: eq(tracks.hackathonId, hackathon.id),
-      orderBy: tracks.order,
-    }),
-    db.query.prizes.findMany({
-      where: eq(prizes.hackathonId, hackathon.id),
-      orderBy: prizes.rank,
-    }),
-  ]);
-
-  return {
-    hackathon,
-    phases: hackathonPhases,
-    tracks: hackathonTracks,
-    prizes: hackathonPrizes,
-  };
+  const relations = await fetchHackathonRelations(hackathon.id);
+  return { hackathon, ...relations };
 }
 
 // ---------------------------------------------------------------------------
@@ -186,27 +196,8 @@ export async function getHackathonBySlug(
 
   if (!hackathon) return null;
 
-  const [hackathonPhases, hackathonTracks, hackathonPrizes] = await Promise.all([
-    db.query.phases.findMany({
-      where: eq(phases.hackathonId, hackathon.id),
-      orderBy: phases.order,
-    }),
-    db.query.tracks.findMany({
-      where: eq(tracks.hackathonId, hackathon.id),
-      orderBy: tracks.order,
-    }),
-    db.query.prizes.findMany({
-      where: eq(prizes.hackathonId, hackathon.id),
-      orderBy: prizes.rank,
-    }),
-  ]);
-
-  return {
-    hackathon,
-    phases: hackathonPhases,
-    tracks: hackathonTracks,
-    prizes: hackathonPrizes,
-  };
+  const relations = await fetchHackathonRelations(hackathon.id);
+  return { hackathon, ...relations };
 }
 
 // ---------------------------------------------------------------------------
@@ -279,26 +270,30 @@ export async function updateHackathon(params: {
     // If slug is being changed, handle collision
     let slugModified = false;
     let newSlug: string | undefined;
-    const updateData: Record<string, unknown> = { ...params.data, updatedAt: new Date() };
+    let resolvedSlug: string | undefined = params.data.slug;
 
-    if (updateData.slug && updateData.slug !== existing.slug) {
-      const slugResult = await generateUniqueSlug(updateData.slug as string, params.hackathonId);
-      updateData.slug = slugResult.slug;
+    if (params.data.slug && params.data.slug !== existing.slug) {
+      const slugResult = await generateUniqueSlug(params.data.slug, params.hackathonId);
+      resolvedSlug = slugResult.slug;
       slugModified = slugResult.modified;
       newSlug = slugResult.modified ? slugResult.slug : undefined;
     }
 
     // If title is changing and no explicit slug change, regenerate slug from title
-    if (updateData.title && !params.data.slug && updateData.title !== existing.title) {
-      const slugResult = await generateUniqueSlug(updateData.title as string, params.hackathonId);
-      updateData.slug = slugResult.slug;
+    if (params.data.title && !params.data.slug && params.data.title !== existing.title) {
+      const slugResult = await generateUniqueSlug(params.data.title, params.hackathonId);
+      resolvedSlug = slugResult.slug;
       slugModified = slugResult.modified;
       newSlug = slugResult.modified ? slugResult.slug : undefined;
     }
 
     const [updated] = await db
       .update(hackathons)
-      .set(updateData)
+      .set({
+        ...params.data,
+        ...(resolvedSlug ? { slug: resolvedSlug } : {}),
+        updatedAt: new Date(),
+      })
       .where(eq(hackathons.id, params.hackathonId))
       .returning();
 

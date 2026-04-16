@@ -2,7 +2,7 @@
 
 **Document ID:** ARCH-004  
 **Date:** April 16, 2026  
-**Status:** Phase 1 Complete (Foundation + Auth + Org Management + Admin)  
+**Status:** Phase 2 Part 1 Complete (DB Schema + StorageProvider + Templates + Service)  
 **Update Frequency:** Every development phase
 
 ---
@@ -83,7 +83,10 @@ hackforge/                              # PROJECT ROOT
 │   ├── 003-coding-conventions.md
 │   ├── 004-architecture.md             # ← THIS FILE
 │   ├── 005-development-workflow.md
-│   └── 006-foundation-auth/            # Phase 1 PRD + TRD
+│   ├── 006-foundation-auth/            # Phase 1 PRD + TRD
+│   │   ├── prd.md
+│   │   └── trd.md
+│   └── 007-hackathon-creation/         # Phase 2 PRD + TRD
 │       ├── prd.md
 │       └── trd.md
 ├── drizzle.config.ts                   # Drizzle Kit configuration
@@ -223,12 +226,20 @@ hackforge/                              # PROJECT ROOT
     │   ├── index.ts                    # Drizzle client instance (postgres.js driver)
     │   ├── schema/
     │   │   ├── index.ts                # Barrel export
-    │   │   ├── enums.ts                # platform_role, org_role
+    │   │   ├── enums.ts                # All enums (Phase 1 + Phase 2)
     │   │   ├── users.ts                # users table + User/NewUser types
     │   │   ├── organizations.ts        # organizations table + types
     │   │   ├── org-memberships.ts      # org_memberships table + types
     │   │   ├── org-invites.ts          # org_invites table + types
-    │   │   └── verification-tokens.ts  # verification_tokens table + types
+    │   │   ├── verification-tokens.ts  # verification_tokens table + types
+    │   │   ├── hackathons.ts           # hackathons table + Hackathon/NewHackathon types
+    │   │   ├── phases.ts              # phases table + Phase/NewPhase types
+    │   │   ├── tracks.ts             # tracks table + Track/NewTrack types
+    │   │   ├── prizes.ts             # prizes table + Prize/NewPrize types
+    │   │   └── hackathon-templates.ts # hackathon_templates table + types
+    │   ├── seed/
+    │   │   ├── index.ts               # Seed runner (npm run db:seed)
+    │   │   └── templates.ts           # 4 default hackathon templates
     │   └── migrations/                 # Drizzle-kit generated SQL migrations
     │
     └── lib/
@@ -250,11 +261,18 @@ hackforge/                              # PROJECT ROOT
         │   ├── auth-service.ts        # Signup, verify, password reset logic
         │   ├── token-service.ts       # SHA-256 token generation + hashing
         │   ├── org-service.ts         # Org CRUD, membership, invites
-        │   └── admin-service.ts       # Platform-wide queries (super_admin)
-        ├── storage/                    # StorageProvider interface (Phase 4 — empty)
+        │   ├── admin-service.ts       # Platform-wide queries (super_admin)
+        │   └── hackathon-service.ts   # Hackathon CRUD, slug gen, lifecycle transitions
+        ├── storage/
+        │   ├── types.ts               # StorageProvider interface + types
+        │   ├── index.ts               # getStorageProvider() factory + re-exports
+        │   ├── constants.ts           # STORAGE_CONSTANTS (types, sizes, paths)
+        │   └── adapters/
+        │       └── supabase-adapter.ts # SupabaseStorageProvider + StorageValidationError
         └── validations/
             ├── auth.ts                # Zod schemas: signup, login, forgot/reset password
-            └── org.ts                 # Zod schemas: createOrg, invite, changeRole, remove
+            ├── org.ts                 # Zod schemas: createOrg, invite, changeRole, remove
+            └── hackathon.ts           # Zod schemas: hackathon, track, phase, prize, publish, transition
 ```
 
 ---
@@ -328,59 +346,81 @@ hackforge/                              # PROJECT ROOT
 | used_at | timestamptz | nullable |
 | created_at | timestamptz | NOT NULL, default now() |
 
-### Hackathon Tables (Phase 2 — Planned)
+### Hackathon Tables (Phase 2 Part 1 — Implemented)
 
 **hackathons**
 | Column | Type | Notes |
 |--------|------|-------|
-| id | uuid | PK |
-| org_id | uuid | FK → organizations.id |
+| id | uuid | PK, default random |
+| org_id | uuid | FK → organizations.id, NOT NULL, indexed |
 | title | text | NOT NULL |
-| slug | text | UNIQUE within org |
+| slug | text | UNIQUE (global), NOT NULL, indexed |
 | description | text | nullable |
-| cover_image_key | text | StorageProvider key |
-| status | hackathon_status enum | draft, published, active, judging, completed, archived |
-| template_type | template_type enum | idea_sprint, build_and_ship, innovation_pipeline, open_challenge |
-| visibility | visibility enum | public, org_only, invite_only |
-| team_min_size | integer | default 1 |
-| team_max_size | integer | default 5 |
-| allow_individual | boolean | default true |
-| created_by | uuid | FK → users.id |
-| created_at | timestamptz | |
-| updated_at | timestamptz | |
-| deleted_at | timestamptz | nullable |
+| cover_image_key | text | nullable, StorageProvider key |
+| status | hackathon_status enum | NOT NULL, default 'draft' |
+| template_type | template_type enum | NOT NULL |
+| visibility | visibility enum | NOT NULL, default 'public' |
+| team_min_size | integer | NOT NULL, default 1 |
+| team_max_size | integer | NOT NULL, default 5 |
+| allow_individual | boolean | NOT NULL, default true |
+| rules_html | text | nullable, Tiptap HTML output |
+| faqs_html | text | nullable, Tiptap HTML output |
+| created_by | uuid | FK → users.id, NOT NULL, indexed |
+| created_at | timestamptz | NOT NULL, default now() |
+| updated_at | timestamptz | NOT NULL, default now() |
+| deleted_at | timestamptz | nullable (soft delete) |
 
 **phases**
 | Column | Type | Notes |
 |--------|------|-------|
-| id | uuid | PK |
-| hackathon_id | uuid | FK → hackathons.id |
+| id | uuid | PK, default random |
+| hackathon_id | uuid | FK → hackathons.id, NOT NULL, indexed, CASCADE delete |
 | name | text | NOT NULL |
-| type | phase_type enum | registration, submission, screening, mentorship, judging, results |
-| order | integer | Phase sequence |
-| start_date | timestamptz | |
-| end_date | timestamptz | |
-| config | jsonb | Phase-specific settings |
-| status | phase_status enum | upcoming, active, completed |
+| type | phase_type enum | NOT NULL |
+| order | integer | NOT NULL, phase sequence |
+| start_date | timestamptz | nullable (set in wizard Step 4) |
+| end_date | timestamptz | nullable (set in wizard Step 4) |
+| config | jsonb | nullable, phase-specific settings |
+| status | phase_status enum | NOT NULL, default 'upcoming' |
+| created_at | timestamptz | NOT NULL, default now() |
+| updated_at | timestamptz | NOT NULL, default now() |
 
 **tracks**
 | Column | Type | Notes |
 |--------|------|-------|
-| id | uuid | PK |
-| hackathon_id | uuid | FK → hackathons.id |
+| id | uuid | PK, default random |
+| hackathon_id | uuid | FK → hackathons.id, NOT NULL, indexed, CASCADE delete |
 | name | text | NOT NULL |
 | description | text | nullable |
 | resources_url | text | nullable |
+| order | integer | NOT NULL, default 0 |
+| created_at | timestamptz | NOT NULL, default now() |
+| updated_at | timestamptz | NOT NULL, default now() |
 
 **prizes**
 | Column | Type | Notes |
 |--------|------|-------|
-| id | uuid | PK |
-| hackathon_id | uuid | FK → hackathons.id |
+| id | uuid | PK, default random |
+| hackathon_id | uuid | FK → hackathons.id, NOT NULL, indexed, CASCADE delete |
 | name | text | NOT NULL |
 | description | text | nullable |
-| rank | integer | 1st, 2nd, 3rd, etc. |
-| image_key | text | nullable |
+| rank | integer | NOT NULL (1st, 2nd, 3rd, etc.) |
+| image_key | text | nullable, StorageProvider key |
+| created_at | timestamptz | NOT NULL, default now() |
+| updated_at | timestamptz | NOT NULL, default now() |
+
+**hackathon_templates**
+| Column | Type | Notes |
+|--------|------|-------|
+| id | uuid | PK, default random |
+| name | text | NOT NULL |
+| slug | text | UNIQUE, NOT NULL |
+| description | text | NOT NULL |
+| template_type | template_type enum | NOT NULL, UNIQUE |
+| default_phases | jsonb | NOT NULL, array of {name, type, order, config} |
+| icon | text | nullable, Lucide icon identifier |
+| is_active | boolean | NOT NULL, default true |
+| created_at | timestamptz | NOT NULL, default now() |
 
 ### Registration & Teams (Phase 3 — Planned)
 
@@ -493,19 +533,19 @@ hackforge/                              # PROJECT ROOT
 
 ## Enums
 
-### Implemented (Phase 1)
+### Implemented (Phase 1 + Phase 2 Part 1)
 ```
 platform_role: user, super_admin
 org_role: org_admin, member
-```
-
-### Planned (Phase 2+)
-```
 hackathon_status: draft, published, active, judging, completed, archived
 template_type: idea_sprint, build_and_ship, innovation_pipeline, open_challenge
 visibility: public, org_only, invite_only
-phase_type: registration, submission, screening, mentorship, judging, results
+phase_type: registration, submission, screening, judging, results
 phase_status: upcoming, active, completed
+```
+
+### Planned (Phase 3+)
+```
 registration_status: pending, approved, rejected
 team_role: lead, member
 submission_status: draft, submitted, late, withdrawn
@@ -531,4 +571,4 @@ notification_type: registration, submission, judging, result, announcement
 
 ---
 
-*This document reflects what EXISTS in the codebase as of Phase 1 completion (April 16, 2026). It is updated after each development phase. Planned tables will be validated against actual implementation during their respective phases.*
+*This document reflects what EXISTS in the codebase as of Phase 2 Part 1 completion (April 16, 2026). It is updated after each development part. Planned tables will be validated against actual implementation during their respective phases.*
