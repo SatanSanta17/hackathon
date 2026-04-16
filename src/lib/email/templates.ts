@@ -84,6 +84,52 @@ export function passwordResetEmail(params: {
   };
 }
 
+export function orgInviteEmail(params: {
+  inviterName: string;
+  orgName: string;
+  role: string;
+  acceptUrl: string;
+}): EmailTemplate {
+  const { inviterName, orgName, role, acceptUrl } = params;
+  const roleLabel = role === 'org_admin' ? 'Admin' : 'Member';
+
+  return {
+    subject: `You're invited to join ${orgName} on HackForge`,
+    html: emailLayout(`
+      <h1 style="font-size: 24px; font-weight: 700; color: #111; margin: 0 0 16px;">
+        You've been invited to ${escapeHtml(orgName)}
+      </h1>
+      <p style="font-size: 16px; color: #333; line-height: 1.6; margin: 0 0 8px;">
+        Hi there,
+      </p>
+      <p style="font-size: 16px; color: #333; line-height: 1.6; margin: 0 0 24px;">
+        ${escapeHtml(inviterName)} has invited you to join <strong>${escapeHtml(orgName)}</strong> as a <strong>${escapeHtml(roleLabel)}</strong> on HackForge.
+      </p>
+      ${ctaButton('Accept Invitation', acceptUrl)}
+      <p style="font-size: 14px; color: #666; line-height: 1.6; margin: 24px 0 0;">
+        This invitation expires in ${AUTH_EXPIRY_LABELS.orgInvite}. If you don't have a HackForge account yet, you'll be able to create one when you accept.
+      </p>
+      <p style="font-size: 13px; color: #999; line-height: 1.6; margin: 16px 0 0;">
+        If the button doesn't work, copy and paste this URL into your browser:<br>
+        <a href="${escapeHtml(acceptUrl)}" style="color: #666; word-break: break-all;">${escapeHtml(acceptUrl)}</a>
+      </p>
+    `),
+    text: [
+      'Hi there,',
+      '',
+      `${inviterName} has invited you to join ${orgName} as a ${roleLabel} on HackForge.`,
+      '',
+      'Accept the invitation by visiting the link below:',
+      '',
+      acceptUrl,
+      '',
+      `This invitation expires in ${AUTH_EXPIRY_LABELS.orgInvite}. If you don't have a HackForge account yet, you'll be able to create one when you accept.`,
+      '',
+      '— HackForge',
+    ].join('\n'),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------

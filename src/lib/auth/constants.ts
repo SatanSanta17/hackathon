@@ -20,6 +20,7 @@ export const AUTH_CONSTANTS = {
 export const AUTH_EXPIRY_LABELS = {
   emailVerification: formatExpiry(AUTH_CONSTANTS.EMAIL_VERIFICATION_EXPIRY_MINUTES),
   passwordReset: formatExpiry(AUTH_CONSTANTS.PASSWORD_RESET_EXPIRY_MINUTES),
+  orgInvite: `${AUTH_CONSTANTS.ORG_INVITE_EXPIRY_DAYS} day(s)`,
 } as const;
 
 function formatExpiry(minutes: number): string {
