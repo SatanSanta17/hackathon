@@ -1,3 +1,5 @@
 eval "$(ssh-agent -s)" && ssh-add ~/.ssh/id_ed25519_personal
 
 - dont forget to create a design token system and typography system
+- landing page for user where they view all available hackathons
+- user profile 

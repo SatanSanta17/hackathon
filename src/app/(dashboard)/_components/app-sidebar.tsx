@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, Trophy, Users, Settings } from 'lucide-react';
+import { LayoutDashboard, Trophy, Users, Settings, CalendarCheck2 } from 'lucide-react';
 
 import {
   Sidebar,
@@ -22,6 +22,7 @@ interface AppSidebarProps {
 
 const NAV_ITEMS = [
   { icon: LayoutDashboard, label: 'Dashboard', path: '' },
+  { icon: CalendarCheck2, label: 'My Hackathons', path: '/my-hackathons' },
   { icon: Trophy, label: 'Hackathons', path: '/hackathons' },
   { icon: Users, label: 'Members', path: '/members' },
   { icon: Settings, label: 'Settings', path: '/settings' },
