@@ -1,3 +1,7 @@
+import { inArray } from 'drizzle-orm';
+
+import { db } from '@/db';
+import { phases as phasesTable } from '@/db/schema';
 import { auth } from '@/lib/auth/auth';
 import { getRegistrationsByUser } from '@/lib/services/registration-service';
 import { getStorageProvider } from '@/lib/storage';
@@ -8,12 +12,36 @@ export default async function MyHackathonsPage() {
   const summaries = await getRegistrationsByUser(session!.user.id);
   const storage = getStorageProvider();
 
+  const hackathonIds = summaries.map((s) => s.hackathonId);
+  const allPhases =
+    hackathonIds.length > 0
+      ? await db
+          .select({
+            hackathonId: phasesTable.hackathonId,
+            name: phasesTable.name,
+            status: phasesTable.status,
+            endDate: phasesTable.endDate,
+            order: phasesTable.order,
+          })
+          .from(phasesTable)
+          .where(inArray(phasesTable.hackathonId, hackathonIds))
+      : [];
+
+  function getActivePhase(hackathonId: string): { label: string; deadline: string } | null {
+    const active = allPhases
+      .filter((p) => p.hackathonId === hackathonId && p.status === 'active' && p.endDate)
+      .sort((a, b) => a.order - b.order)[0];
+    if (!active) return null;
+    return { label: active.name, deadline: active.endDate!.toISOString() };
+  }
+
   const withUrls = await Promise.all(
     summaries.map(async (s) => ({
       ...s,
       coverImageUrl: s.hackathon.coverImageKey
         ? await storage.getSignedUrl(s.hackathon.coverImageKey)
         : null,
+      activePhase: getActivePhase(s.hackathonId),
     })),
   );
 
@@ -36,6 +64,7 @@ export default async function MyHackathonsPage() {
             <MyHackathonCard
               key={s.registrationId}
               summary={{ ...s, coverImageUrl: s.coverImageUrl ?? null }}
+              activePhase={s.activePhase ?? null}
             />
           ))}
         </div>

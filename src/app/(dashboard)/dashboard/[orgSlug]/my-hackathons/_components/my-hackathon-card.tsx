@@ -8,9 +8,10 @@ import type { UserHackathonSummary } from '@/lib/services/registration-service';
 
 interface MyHackathonCardProps {
   summary: UserHackathonSummary & { coverImageUrl: string | null };
+  activePhase: { label: string; deadline: string } | null;
 }
 
-export function MyHackathonCard({ summary }: MyHackathonCardProps) {
+export function MyHackathonCard({ summary, activePhase }: MyHackathonCardProps) {
   const { hackathon, team, formData, coverImageUrl } = summary;
   const isMissingProfile = !formData?.designation || !formData?.department;
 
@@ -110,9 +111,26 @@ export function MyHackathonCard({ summary }: MyHackathonCardProps) {
             </Link>
           </p>
         )}
+
+        {/* Phase countdown */}
+        {hackathon.status === 'completed' ? (
+          <p className="text-xs text-muted-foreground">Hackathon completed.</p>
+        ) : activePhase ? (
+          <p className="text-xs text-muted-foreground">
+            {formatCountdown(activePhase.label, activePhase.deadline)}
+          </p>
+        ) : null}
       </div>
     </div>
   );
+}
+
+function formatCountdown(label: string, deadlineIso: string): string {
+  const msRemaining = new Date(deadlineIso).getTime() - Date.now();
+  const daysRemaining = Math.max(0, Math.ceil(msRemaining / (1000 * 60 * 60 * 24)));
+  if (daysRemaining === 0) return `${label} closes today.`;
+  if (daysRemaining === 1) return `${label} closes tomorrow.`;
+  return `${label} closes in ${daysRemaining} days.`;
 }
 
 function formatStatus(status: string): string {

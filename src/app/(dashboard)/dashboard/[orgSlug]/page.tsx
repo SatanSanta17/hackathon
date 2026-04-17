@@ -1,9 +1,10 @@
 import { redirect } from 'next/navigation';
-import { Trophy, Zap, FileEdit } from 'lucide-react';
+import { Trophy, Zap, FileEdit, Users, UserCheck } from 'lucide-react';
 
 import { auth } from '@/lib/auth/auth';
 import { getOrgBySlug } from '@/lib/services/org-service';
 import { getHackathonStats } from '@/lib/services/hackathon-service';
+import { getOrgParticipantStats } from '@/lib/services/registration-service';
 import { StatCard } from './_components/stat-card';
 
 export async function generateMetadata({
@@ -32,7 +33,10 @@ export default async function OrgDashboardPage({
     redirect('/dashboard');
   }
 
-  const stats = await getHackathonStats(org.id);
+  const [stats, participantStats] = await Promise.all([
+    getHackathonStats(org.id),
+    getOrgParticipantStats(org.id),
+  ]);
 
   return (
     <div className="space-y-6">
@@ -53,6 +57,16 @@ export default async function OrgDashboardPage({
           title="Drafts"
           value={stats.draft}
           icon={<FileEdit className="size-5" />}
+        />
+        <StatCard
+          title="Registered"
+          value={participantStats.registered}
+          icon={<Users className="size-5" />}
+        />
+        <StatCard
+          title="Participating"
+          value={participantStats.participating}
+          icon={<UserCheck className="size-5" />}
         />
       </div>
     </div>
