@@ -559,9 +559,12 @@ export async function softDeleteHackathon(params: {
     return { success: false, error: 'ONLY_DRAFTS_CAN_BE_DELETED' };
   }
 
+  // Mangle the slug on deletion so the original slug becomes available for a new hackathon.
+  const mangledSlug = `${hackathon.slug}-deleted-${params.hackathonId.slice(0, 8)}`;
+
   await db
     .update(hackathons)
-    .set({ deletedAt: new Date(), updatedAt: new Date() })
+    .set({ deletedAt: new Date(), updatedAt: new Date(), slug: mangledSlug })
     .where(eq(hackathons.id, params.hackathonId));
 
   console.log('[hackathon-service] softDeleteHackathon success:', { id: params.hackathonId });
@@ -740,7 +743,9 @@ async function isSlugAvailable(
   slug: string,
   excludeHackathonId?: string
 ): Promise<boolean> {
-  const conditions = [eq(hackathons.slug, slug), isNull(hackathons.deletedAt)];
+  // Include soft-deleted hackathons — the DB UNIQUE constraint on slug applies to
+  // all rows regardless of deleted_at, so the app-level check must match.
+  const conditions = [eq(hackathons.slug, slug)];
 
   if (excludeHackathonId) {
     conditions.push(ne(hackathons.id, excludeHackathonId));
