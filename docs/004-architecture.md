@@ -2,7 +2,7 @@
 
 **Document ID:** ARCH-004  
 **Date:** April 17, 2026  
-**Status:** Phase 3 Part 3 Complete (Team Formation UI)  
+**Status:** Phase 3 Complete (Registration + Team Formation)  
 **Update Frequency:** Every development phase
 
 ---
@@ -180,11 +180,16 @@ hackforge/                              # PROJECT ROOT
     │   │   │       │   └── [hackathonId]/
     │   │   │       │       ├── edit/
     │   │   │       │       │   └── page.tsx  # Edit wizard (server: loads hackathon + registrationFields)
-    │   │   │       │       └── participants/
-    │   │   │       │           ├── page.tsx     # Admin roster: registered vs participating counts, CSV export
+    │   │   │       │       ├── participants/
+    │   │   │       │       │   ├── page.tsx     # Admin roster: registered vs participating counts, CSV export, sub-nav
+    │   │   │       │       │   ├── loading.tsx  # Table skeleton
+    │   │   │       │       │   └── _components/
+    │   │   │       │       │       └── participants-table.tsx  # Client: search + team/track filters + custom fields
+    │   │   │       │       └── teams/
+    │   │   │       │           ├── page.tsx     # Admin team list (org_admin gated): all teams + approve/reject queue, sub-nav
     │   │   │       │           ├── loading.tsx  # Table skeleton
     │   │   │       │           └── _components/
-    │   │   │       │               └── participants-table.tsx  # Client: search + team/track filters + custom fields
+    │   │   │       │               └── admin-teams-client.tsx  # Pending Review section + full table with filters (client)
     │   │   │       ├── my-hackathons/
     │   │   │       │   ├── page.tsx     # Registered hackathons for current user with signed cover images
     │   │   │       │   ├── loading.tsx  # Card grid skeleton
@@ -309,8 +314,14 @@ hackforge/                              # PROJECT ROOT
     │       │   └── [hackathonId]/
     │       │       ├── teams/
     │       │       │   ├── route.ts         # GET browse (public) / POST create team (auth)
+    │       │       │   ├── all/
+    │       │       │   │   └── route.ts     # GET all teams (org_admin); supports trackId/isOpen/adminStatus filters
     │       │       │   └── [teamId]/
     │       │       │       ├── route.ts     # GET team details (auth, strips inviteCode for non-members) / PATCH update (lead)
+    │       │       │       ├── approve/
+    │       │       │       │   └── route.ts # POST approve team (org_admin); guards pending_review status
+    │       │       │       ├── reject/
+    │       │       │       │   └── route.ts # POST reject team (org_admin); no status precondition
     │       │       │       ├── join-request/
     │       │       │       │   └── route.ts # POST send join request (validates isOpen + size)
     │       │       │       ├── join-requests/
@@ -431,8 +442,8 @@ hackforge/                              # PROJECT ROOT
         │   ├── admin-service.ts       # Platform-wide queries (super_admin)
         │   ├── hackathon-service.ts   # Hackathon CRUD, slug gen, stats, transitions; slug mangling on soft-delete
         │   ├── hackathon-lifecycle.ts # Check-on-access status resolution engine
-        │   ├── registration-service.ts # Registration CRUD, autoRegister, discoverability, getRegistrationsByUser, updateRegistration (Phase 3)
-        │   ├── team-service.ts        # Team CRUD, membership, join requests, invites, approval; getTeamWithMembers (TeamProfileData + track join), getJoinRequestsForTeam, getTeamInviteByToken (hashes raw token) (Phase 3)
+        │   ├── registration-service.ts # Registration CRUD, autoRegister, discoverability, getRegistrationsByUser, updateRegistration, getOrgParticipantStats (Phase 3)
+        │   ├── team-service.ts        # Team CRUD, membership, join requests, invites, approval; getTeamWithMembers, getJoinRequestsForTeam, getTeamInviteByToken, getAllTeamsForHackathon (AdminTeamRow[] for admin view) (Phase 3)
         │   └── team-up-service.ts     # Team-up request flow between unteamed participants (Phase 3)
         ├── storage/
         │   ├── types.ts               # StorageProvider interface + types
@@ -453,7 +464,7 @@ hackforge/                              # PROJECT ROOT
 
 ## Data Model
 
-> **Note:** All tables below reflect the ACTUAL implemented schema (Phase 1 + Phase 2 + Phase 3 Parts 1–3). Tables in Phase 4+ sections are not yet built.
+> **Note:** All tables below reflect the ACTUAL implemented schema (Phase 1 + Phase 2 + Phase 3). Tables in Phase 4+ sections are not yet built.
 
 ### Core Tables (Phase 1 — Implemented)
 
@@ -808,4 +819,4 @@ notification_type: registration, submission, judging, result, announcement
 
 ---
 
-*This document reflects what EXISTS in the codebase as of Phase 3 Part 2 completion (April 17, 2026). It is updated after each development part. Planned tables will be validated against actual implementation during their respective phases.*
+*This document reflects what EXISTS in the codebase as of Phase 3 completion (April 18, 2026). It is updated after each development part. Planned tables will be validated against actual implementation during their respective phases.*

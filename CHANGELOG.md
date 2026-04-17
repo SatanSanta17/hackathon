@@ -6,6 +6,25 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Phase 3, Part 4: Registration + Team Formation — Admin Approval + Dashboard Views (April 18, 2026)
+
+#### Added
+- Service method `getAllTeamsForHackathon(hackathonId, filters?)` on `team-service.ts` — returns `AdminTeamRow[]` with `memberCount` and `leadName` via two-step query (teams+tracks JOIN, then all member rows for those teamIds correlated in JS); supports optional `trackId`/`isOpen`/`adminStatus` filters
+- Service method `getOrgParticipantStats(orgId)` on `registration-service.ts` — returns `{ registered, participating }` as two parallel `countDistinct` queries scoped to active/published hackathons for the org
+- API route `GET /api/hackathons/[hackathonId]/teams/all` — org-admin only; all teams regardless of status; supports `?trackId`, `?isOpen`, `?adminStatus` filters; returns `requiresApproval` flag alongside team list
+- API route `POST /api/hackathons/[hackathonId]/teams/[teamId]/approve` — org-admin only; guards `adminStatus === 'pending_review'`; calls `approveTeam` (clears `reviewReason`, sets `adminStatus = 'approved'`)
+- API route `POST /api/hackathons/[hackathonId]/teams/[teamId]/reject` — org-admin only; no status precondition; calls `rejectTeam`
+- Admin teams page (`/dashboard/[orgSlug]/hackathons/[hackathonId]/teams`) — server component; gated to `org_admin` via `checkUserOrgRole`; fetches all teams with `getAllTeamsForHackathon`
+- `AdminTeamsClient` — Pending Review section (amber card, only when `requiresApproval && pendingTeams.length > 0`); each pending row shows team name, lead, member count, `reviewReason`; Approve/Reject buttons with optimistic state updates and toast feedback; full teams table with search by name, track filter, open/closed filter, status filter (status filter and column only shown when `requiresApproval`); `AdminStatusBadge` helper with amber/green/destructive variants
+- Admin teams loading skeleton (`/dashboard/[orgSlug]/hackathons/[hackathonId]/teams/loading.tsx`)
+- Sub-navigation between Participants and Teams pages — "Participants | Teams" link row added to both admin pages
+- Org dashboard stat cards — "Registered" (`Users` icon) and "Participating" (`UserCheck` icon) added to `/dashboard/[orgSlug]`, fetched in parallel with existing hackathon stats
+- My Hackathons phase countdown — server page fetches all phases for registered hackathons in a single `inArray` query; computes first `status === 'active'` phase with non-null `endDate`; passes ISO string deadline to card
+- `MyHackathonCard` countdown display — shows "Hackathon completed." when `hackathon.status === 'completed'`; shows "[Phase name] closes today/tomorrow/in N days." when an active phase is found; hidden otherwise
+- Landing page browse entry points — "Browse Teams" and "Browse Participants" link row rendered below the main CTA in `RegistrationCta` only when `hackathonStatus === 'active'`; `hackathonStatus` prop threaded from `LandingHero` → `RegistrationCta`
+
+---
+
 ### Phase 3, Part 3: Registration + Team Formation — Team Formation UI (April 17, 2026)
 
 #### Added

@@ -92,6 +92,7 @@ export function LandingHero({
             ctaState={ctaState}
             hackathonSlug={hackathonSlug}
             hackathonTitle={title}
+            hackathonStatus={status}
             registrationFields={registrationFields}
           />
 
