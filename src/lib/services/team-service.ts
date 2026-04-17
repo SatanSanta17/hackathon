@@ -9,6 +9,7 @@ import {
   teamJoinRequests,
   teamMembers,
   teams,
+  tracks,
   users,
 } from '@/db/schema';
 import { getEmailService } from '@/lib/email';
@@ -700,4 +701,132 @@ export async function rejectTeam(teamId: string): Promise<void> {
     .update(teams)
     .set({ adminStatus: 'rejected', updatedAt: new Date() })
     .where(eq(teams.id, teamId));
+}
+
+// ---------------------------------------------------------------------------
+// Part 3 — Profile page service methods
+// ---------------------------------------------------------------------------
+
+export interface TeamMemberDetail {
+  userId: string;
+  name: string;
+  avatarUrl: string | null;
+  role: string;
+  joinedAt: Date;
+}
+
+export interface TeamProfileData {
+  id: string;
+  hackathonId: string;
+  name: string;
+  description: string | null;
+  inviteCode: string;
+  isOpen: boolean;
+  trackId: string | null;
+  trackName: string | null;
+  adminStatus: string;
+  reviewReason: string | null;
+  createdBy: string;
+  memberCount: number;
+  members: TeamMemberDetail[];
+}
+
+export async function getTeamWithMembers(teamId: string): Promise<TeamProfileData | null> {
+  const [row] = await db
+    .select({ team: teams, trackName: tracks.name })
+    .from(teams)
+    .leftJoin(tracks, eq(tracks.id, teams.trackId))
+    .where(and(eq(teams.id, teamId), isNull(teams.deletedAt)))
+    .limit(1);
+
+  if (!row) return null;
+
+  const members = await db
+    .select({
+      userId: teamMembers.userId,
+      name: users.name,
+      avatarUrl: users.avatarUrl,
+      role: teamMembers.role,
+      joinedAt: teamMembers.joinedAt,
+    })
+    .from(teamMembers)
+    .innerJoin(users, eq(users.id, teamMembers.userId))
+    .where(eq(teamMembers.teamId, teamId))
+    .orderBy(asc(teamMembers.joinedAt));
+
+  return {
+    id: row.team.id,
+    hackathonId: row.team.hackathonId,
+    name: row.team.name,
+    description: row.team.description,
+    inviteCode: row.team.inviteCode,
+    isOpen: row.team.isOpen,
+    trackId: row.team.trackId,
+    trackName: row.trackName ?? null,
+    adminStatus: row.team.adminStatus,
+    reviewReason: row.team.reviewReason,
+    createdBy: row.team.createdBy,
+    memberCount: members.length,
+    members,
+  };
+}
+
+export interface JoinRequestForTeam {
+  id: string;
+  userId: string;
+  userName: string;
+  userAvatarUrl: string | null;
+  message: string | null;
+  entryPoint: string;
+  requestedAt: Date;
+}
+
+export async function getJoinRequestsForTeam(teamId: string): Promise<JoinRequestForTeam[]> {
+  return db
+    .select({
+      id: teamJoinRequests.id,
+      userId: teamJoinRequests.userId,
+      userName: users.name,
+      userAvatarUrl: users.avatarUrl,
+      message: teamJoinRequests.message,
+      entryPoint: teamJoinRequests.entryPoint,
+      requestedAt: teamJoinRequests.requestedAt,
+    })
+    .from(teamJoinRequests)
+    .innerJoin(users, eq(users.id, teamJoinRequests.userId))
+    .where(
+      and(
+        eq(teamJoinRequests.teamId, teamId),
+        eq(teamJoinRequests.status, 'pending'),
+      ),
+    )
+    .orderBy(asc(teamJoinRequests.requestedAt));
+}
+
+export async function getTeamInviteByToken(token: string): Promise<{
+  id: string;
+  email: string;
+  expiresAt: Date;
+  acceptedAt: Date | null;
+  teamName: string;
+  hackathonTitle: string;
+  hackathonSlug: string;
+} | null> {
+  const [row] = await db
+    .select({
+      id: teamInvites.id,
+      email: teamInvites.email,
+      expiresAt: teamInvites.expiresAt,
+      acceptedAt: teamInvites.acceptedAt,
+      teamName: teams.name,
+      hackathonTitle: hackathons.title,
+      hackathonSlug: hackathons.slug,
+    })
+    .from(teamInvites)
+    .innerJoin(teams, eq(teams.id, teamInvites.teamId))
+    .innerJoin(hackathons, eq(hackathons.id, teams.hackathonId))
+    .where(eq(teamInvites.token, token))
+    .limit(1);
+
+  return row ?? null;
 }
