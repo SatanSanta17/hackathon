@@ -6,6 +6,52 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Phase 3, Part 3: Registration + Team Formation — Team Formation UI (April 17, 2026)
+
+#### Added
+- API route `GET /api/hackathons/[hackathonId]/teams` — list open, non-full, approved teams for public browse; supports `?trackId=` filter
+- API route `POST /api/hackathons/[hackathonId]/teams` — create team (auth); validates registration + unteamed status; service sets `adminStatus` based on `requiresApproval`
+- API route `GET /api/hackathons/[hackathonId]/teams/[teamId]` — team details (auth); strips `inviteCode` from response if viewer is not a member
+- API route `PATCH /api/hackathons/[hackathonId]/teams/[teamId]` — update team profile (lead only); service re-queues for review when `requiresApproval`
+- API route `POST /api/hackathons/[hackathonId]/teams/[teamId]/join-request` — send join request; validates `isOpen` and team size before inserting
+- API route `GET /api/hackathons/[hackathonId]/teams/[teamId]/join-requests` — list pending requests (lead only)
+- API route `PATCH /api/hackathons/[hackathonId]/teams/[teamId]/join-requests/[requestId]` — approve/reject (lead only); fetches `teamMaxSize` from hackathon and passes to `respondToJoinRequest`
+- API route `POST /api/hackathons/[hackathonId]/teams/[teamId]/invite` — invite by email (lead only); checks team size
+- API route `POST /api/hackathons/[hackathonId]/teams/[teamId]/leave` — leave team; service handles auto-transfer + dissolve-if-last
+- API route `POST /api/hackathons/[hackathonId]/teams/[teamId]/transfer-lead` — transfer leadership (lead only)
+- API route `GET /api/teams/by-invite-code/[inviteCode]` — public lookup; returns team + hackathon context, never exposes `inviteCode`
+- API route `POST /api/team-invites/accept` — accept email invite by raw token (auth); maps named service errors to HTTP codes
+- API route `GET /api/hackathons/[hackathonId]/participants` — discoverable unteamed participants (auth); excludes requesting user; supports `?search=` filter
+- API route `POST /api/hackathons/[hackathonId]/team-up` — create team-up request between two registered unteamed users
+- API route `GET /api/hackathons/[hackathonId]/team-up-requests` — incoming pending team-up requests for current user
+- API route `PATCH /api/hackathons/[hackathonId]/team-up-requests/[requestId]` — accept/reject (recipient only); on accept: creates team + adds both users
+- Team browse page (`/hackathons/[slug]/teams`) — server component; `CreateTeamButton` shown only when registered+unteamed; public access
+- `TeamBrowseClient` — client fetch with track pill filter (refetches `?trackId=` on change); skeleton loading; empty state
+- `TeamBrowseCard` — context-aware CTA: "Sign in to Join" / "Register to Join" / "Request to Join" (opens dialog) / "Already on a Team" / "Team Full" / "Team Closed" (disabled)
+- `CreateTeamModal` — dialog with name/description/track Select/open Switch; on success redirects to new team profile
+- `JoinRequestDialog` — optional message textarea; used from both browse card and profile page with `entryPoint` prop
+- Team profile page (`/hackathons/[slug]/teams/[teamId]`) — server component; redirects unauthenticated users to login with `callbackUrl`
+- `TeamProfileClient` — all sections: header badges (track, open/closed, member count, admin status), status alert (amber/red for `requires_approval`), description, members list with initials avatars + joined date, role-aware actions bar, copyable invite link (members only), join requests queue (lead), incoming team-up requests (non-member unteamed)
+- `EditTeamDialog` — name/description/track/open form (lead); shows "submitted for review" toast when `requiresApproval`
+- `InviteByEmailDialog` — email input (lead); calls `POST .../invite`
+- `TransferLeadDialog` — Select from non-lead members (lead); calls `POST .../transfer-lead` + `router.refresh()`
+- Join link page (`/hackathons/[slug]/teams/join?code=`) — server component; fetches team by invite code + separate member count query; passes to `JoinLinkClient`
+- `JoinLinkClient` — closed/full/requested/auth states; unauthenticated user sees login + signup CTAs with `callbackUrl` round-trip
+- Participants browse page (`/hackathons/[slug]/participants`) — server component; auth-gated; inline `db` query for viewer's team role (no new service method)
+- `ParticipantsBrowseClient` — client fetch + `useMemo` search filter; excludes `viewerUserId` client-side; skeleton loading
+- `ParticipantCard` — initials avatar, designation + department from `formData`, registered date; "Team Up" CTA (unteamed registered viewer) or "Invite to Team" (lead viewer) with per-card requested/invited state
+- `TeamUpDialog` — proposed team name (default "My Team") + optional message; calls `POST /team-up`
+- Team invite acceptance page (`/team-invites/accept?token=`) — server component; `InvalidInvitePage` inline component for not_found/expired/already_accepted states
+- `TeamInviteAcceptClient` — "Accept Invite" button (auth) or Sign In + Create Account with `callbackUrl` (unauth)
+- Three new service methods on `team-service.ts`: `getTeamWithMembers` (returns `TeamProfileData` with track join), `getJoinRequestsForTeam` (pending requests with user details), `getTeamInviteByToken` (hashes raw token before DB lookup)
+- `alert.tsx` shadcn component added (used for team admin status alerts)
+- Loading skeletons: `teams/loading.tsx`, `teams/[teamId]/loading.tsx`, `participants/loading.tsx`
+
+#### Fixed
+- `getTeamInviteByToken` hashes the raw URL token with `crypto.createHash('sha256')` before querying — DB stores hashed tokens and `hashToken` is not exported from `token-service.ts`
+- `create-team-modal.tsx` TypeScript: `resolver: zodResolver(createTeamSchema) as any` — same `Resolver` inference issue as `registration-form.tsx` (Zod `.default()` produces required type at runtime but optional in inferred type)
+- `edit-team-dialog.tsx` TypeScript: same resolver cast pattern applied to `updateTeamSchema`
+
 ### Phase 3, Part 2: Registration + Team Formation — API Routes + UI + Admin Roster (April 17, 2026)
 
 #### Added

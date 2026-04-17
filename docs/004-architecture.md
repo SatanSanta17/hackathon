@@ -2,7 +2,7 @@
 
 **Document ID:** ARCH-004  
 **Date:** April 17, 2026  
-**Status:** Phase 3 Part 2 Complete (API Routes + UI + Admin Roster)  
+**Status:** Phase 3 Part 3 Complete (Team Formation UI)  
 **Update Frequency:** Every development phase
 
 ---
@@ -202,25 +202,58 @@ hackforge/                              # PROJECT ROOT
     │   │
     │   ├── (public)/                   # Public pages (no auth required)
     │   │   ├── layout.tsx              # Competitive dark theme wrapper (.theme-competitive)
-    │   │   └── hackathons/
-    │   │       └── [slug]/
-    │   │           ├── page.tsx         # Landing page (SSR + generateMetadata for SEO/OG)
-    │   │           ├── not-found.tsx    # Styled 404 for invalid/draft/archived slugs
+    │   │   ├── hackathons/
+    │   │   │   └── [slug]/
+    │   │   │       ├── page.tsx         # Landing page (SSR + generateMetadata for SEO/OG)
+    │   │   │       ├── not-found.tsx    # Styled 404 for invalid/draft/archived slugs
+    │   │   │       ├── _components/
+    │   │   │       │   ├── landing-hero.tsx            # Cover image/gradient, title, status, RegistrationCta
+    │   │   │       │   ├── registration-cta.tsx        # 8-variant CtaState button + modal host (client)
+    │   │   │       │   ├── auth-registration-modal.tsx # 4-mode dialog: auth → signup → register → success (client)
+    │   │   │       │   ├── registration-form.tsx       # Dynamic reg form with custom fields + discoverability (client)
+    │   │   │       │   ├── profile-nudge-banner.tsx    # Dismissible amber nudge for incomplete profile (client)
+    │   │   │       │   ├── share-buttons.tsx           # Copy Link, X, LinkedIn, WhatsApp (client)
+    │   │   │       │   ├── landing-about.tsx           # Description section
+    │   │   │       │   ├── landing-tracks.tsx          # Track cards (single inline / multi grid)
+    │   │   │       │   ├── landing-timeline.tsx        # Horizontal (lg+) / vertical timeline
+    │   │   │       │   ├── landing-prizes.tsx          # Prize cards with rank styling
+    │   │   │       │   ├── landing-rules.tsx           # Rich text (prose prose-invert)
+    │   │   │       │   ├── landing-faqs.tsx            # Accordion with CSS grid animation (client)
+    │   │   │       │   ├── landing-nav.tsx             # Sticky scroll-spy nav (client)
+    │   │   │       │   └── landing-footer.tsx          # "Powered by HackForge"
+    │   │   │       ├── teams/
+    │   │   │       │   ├── page.tsx         # Team browse (public); CreateTeamButton shown when registered+unteamed
+    │   │   │       │   ├── loading.tsx      # Card grid skeleton
+    │   │   │       │   ├── _components/
+    │   │   │       │   │   ├── create-team-button.tsx   # Client wrapper holding modal open state
+    │   │   │       │   │   ├── create-team-modal.tsx    # Create team dialog: name/desc/track/open (client)
+    │   │   │       │   │   ├── team-browse-client.tsx   # Fetch teams + track pill filter (client)
+    │   │   │       │   │   ├── team-browse-card.tsx     # Card with role-aware join CTA (client)
+    │   │   │       │   │   └── join-request-dialog.tsx  # Optional message textarea → POST join-request (client)
+    │   │   │       │   ├── [teamId]/
+    │   │   │       │   │   ├── page.tsx         # Team profile (auth required, redirects to login)
+    │   │   │       │   │   ├── loading.tsx      # Profile skeleton
+    │   │   │       │   │   └── _components/
+    │   │   │       │   │       ├── team-profile-client.tsx    # All sections: header, alerts, members, actions, join link, requests (client)
+    │   │   │       │   │       ├── edit-team-dialog.tsx       # Edit name/desc/track/open (lead, client)
+    │   │   │       │   │       ├── invite-by-email-dialog.tsx # Email invite (lead, client)
+    │   │   │       │   │       └── transfer-lead-dialog.tsx   # Select new lead from members (lead, client)
+    │   │   │       │   └── join/
+    │   │   │       │       ├── page.tsx         # Join via invite link (?code=); fetches memberCount separately
+    │   │   │       │       └── _components/
+    │   │   │       │           └── join-link-client.tsx  # Closed/full/requested/auth states (client)
+    │   │   │       └── participants/
+    │   │   │           ├── page.tsx         # Discoverable participants browse (auth required)
+    │   │   │           ├── loading.tsx      # Skeleton grid
+    │   │   │           └── _components/
+    │   │   │               ├── participants-browse-client.tsx  # Fetch + useMemo search; excludes viewer (client)
+    │   │   │               ├── participant-card.tsx            # Initials avatar, formData fields, Team Up / Invite CTA (client)
+    │   │   │               └── team-up-dialog.tsx              # Proposed team name + message → POST /team-up (client)
+    │   │   └── team-invites/
+    │   │       └── accept/
+    │   │           ├── page.tsx         # Email invite acceptance (?token=); InvalidInvitePage for bad states
     │   │           └── _components/
-    │   │               ├── landing-hero.tsx            # Cover image/gradient, title, status, RegistrationCta
-    │   │               ├── registration-cta.tsx        # 8-variant CtaState button + modal host (client)
-    │   │               ├── auth-registration-modal.tsx # 4-mode dialog: auth → signup → register → success (client)
-    │   │               ├── registration-form.tsx       # Dynamic reg form with custom fields + discoverability (client)
-    │   │               ├── profile-nudge-banner.tsx    # Dismissible amber nudge for incomplete profile (client)
-    │   │               ├── share-buttons.tsx           # Copy Link, X, LinkedIn, WhatsApp (client)
-    │   │               ├── landing-about.tsx           # Description section
-    │   │               ├── landing-tracks.tsx          # Track cards (single inline / multi grid)
-    │   │               ├── landing-timeline.tsx        # Horizontal (lg+) / vertical timeline
-    │   │               ├── landing-prizes.tsx          # Prize cards with rank styling
-    │   │               ├── landing-rules.tsx           # Rich text (prose prose-invert)
-    │   │               ├── landing-faqs.tsx            # Accordion with CSS grid animation (client)
-    │   │               ├── landing-nav.tsx             # Sticky scroll-spy nav (client)
-    │   │               └── landing-footer.tsx          # "Powered by HackForge"
+    │   │               └── team-invite-accept-client.tsx  # Accept button (auth) / login+signup CTAs (unauth)
     │   │
     │   └── api/
     │       ├── auth/
@@ -272,6 +305,39 @@ hackforge/                              # PROJECT ROOT
     │       │           ├── route.ts         # GET full roster with user + team info (admin)
     │       │           └── export/
     │       │               └── route.ts     # GET CSV download with custom field columns (admin)
+    │       ├── hackathons/ (continued)
+    │       │   └── [hackathonId]/
+    │       │       ├── teams/
+    │       │       │   ├── route.ts         # GET browse (public) / POST create team (auth)
+    │       │       │   └── [teamId]/
+    │       │       │       ├── route.ts     # GET team details (auth, strips inviteCode for non-members) / PATCH update (lead)
+    │       │       │       ├── join-request/
+    │       │       │       │   └── route.ts # POST send join request (validates isOpen + size)
+    │       │       │       ├── join-requests/
+    │       │       │       │   ├── route.ts # GET pending requests (lead only)
+    │       │       │       │   └── [requestId]/
+    │       │       │       │       └── route.ts  # PATCH approve/reject (lead, passes teamMaxSize)
+    │       │       │       ├── invite/
+    │       │       │       │   └── route.ts # POST invite by email (lead only)
+    │       │       │       ├── leave/
+    │       │       │       │   └── route.ts # POST leave team (auto-transfer + dissolve-if-last)
+    │       │       │       └── transfer-lead/
+    │       │       │           └── route.ts # POST transfer leadership (lead only)
+    │       │       ├── participants/
+    │       │       │   └── route.ts         # GET discoverable unteamed participants (auth, excludes self)
+    │       │       ├── team-up/
+    │       │       │   └── route.ts         # POST create team-up request
+    │       │       └── team-up-requests/
+    │       │           ├── route.ts         # GET incoming pending team-up requests (auth)
+    │       │           └── [requestId]/
+    │       │               └── route.ts     # PATCH accept/reject (recipient only)
+    │       ├── teams/
+    │       │   └── by-invite-code/
+    │       │       └── [inviteCode]/
+    │       │           └── route.ts         # GET team by invite code (public, never exposes inviteCode)
+    │       ├── team-invites/
+    │       │   └── accept/
+    │       │       └── route.ts             # POST accept email invite by raw token (auth)
     │       ├── user/
     │       │   └── hackathons/
     │       │       └── route.ts             # GET current user's registered hackathons
@@ -290,6 +356,7 @@ hackforge/                              # PROJECT ROOT
     │   │   └── session-provider.tsx     # NextAuth SessionProvider wrapper
     │   ├── verification-banner.tsx      # Email verification reminder banner
     │   └── ui/                         # shadcn/ui components (radix-nova)
+    │       ├── alert.tsx
     │       ├── avatar.tsx
     │       ├── badge.tsx
     │       ├── button.tsx
@@ -365,7 +432,7 @@ hackforge/                              # PROJECT ROOT
         │   ├── hackathon-service.ts   # Hackathon CRUD, slug gen, stats, transitions; slug mangling on soft-delete
         │   ├── hackathon-lifecycle.ts # Check-on-access status resolution engine
         │   ├── registration-service.ts # Registration CRUD, autoRegister, discoverability, getRegistrationsByUser, updateRegistration (Phase 3)
-        │   ├── team-service.ts        # Team CRUD, membership, join requests, invites, approval (Phase 3)
+        │   ├── team-service.ts        # Team CRUD, membership, join requests, invites, approval; getTeamWithMembers (TeamProfileData + track join), getJoinRequestsForTeam, getTeamInviteByToken (hashes raw token) (Phase 3)
         │   └── team-up-service.ts     # Team-up request flow between unteamed participants (Phase 3)
         ├── storage/
         │   ├── types.ts               # StorageProvider interface + types
@@ -386,7 +453,7 @@ hackforge/                              # PROJECT ROOT
 
 ## Data Model
 
-> **Note:** All tables below reflect the ACTUAL implemented schema (Phase 1 + Phase 2 + Phase 3 Parts 1–2). Tables in Phase 4+ sections are not yet built.
+> **Note:** All tables below reflect the ACTUAL implemented schema (Phase 1 + Phase 2 + Phase 3 Parts 1–3). Tables in Phase 4+ sections are not yet built.
 
 ### Core Tables (Phase 1 — Implemented)
 
