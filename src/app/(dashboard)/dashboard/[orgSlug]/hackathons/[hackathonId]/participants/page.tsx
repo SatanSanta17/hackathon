@@ -1,4 +1,5 @@
 import { notFound, redirect } from 'next/navigation';
+import Link from 'next/link';
 
 import { auth } from '@/lib/auth/auth';
 import { getOrgBySlug } from '@/lib/services/org-service';
@@ -48,13 +49,24 @@ export default async function ParticipantsPage({
             {hackathon.hackathon.title}
           </p>
         </div>
-        <a
-          href={`/api/hackathons/${hackathonId}/registrations/export`}
-          download
-          className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium hover:bg-accent"
-        >
-          Export CSV
-        </a>
+        <div className="flex items-center gap-4">
+          <nav className="flex items-center gap-4 text-sm">
+            <span className="font-medium">Participants</span>
+            <Link
+              href={`/dashboard/${orgSlug}/hackathons/${hackathonId}/teams`}
+              className="text-muted-foreground transition-colors hover:text-foreground"
+            >
+              Teams
+            </Link>
+          </nav>
+          <a
+            href={`/api/hackathons/${hackathonId}/registrations/export`}
+            download
+            className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium hover:bg-accent"
+          >
+            Export CSV
+          </a>
+        </div>
       </div>
 
       <div className="flex gap-4">
