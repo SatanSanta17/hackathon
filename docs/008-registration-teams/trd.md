@@ -3,7 +3,7 @@
 **Document ID:** TRD-008  
 **Date:** April 17, 2026  
 **Author:** Burhanuddin C.  
-**Status:** Part 2 Written — Awaiting Implementation  
+**Status:** Parts 1–4 Written — Part 3 Implemented and Verified  
 **PRD Reference:** `docs/008-registration-teams/prd.md`  
 **Architecture Reference:** `docs/004-architecture.md`  
 **Conventions Reference:** `docs/003-coding-conventions.md`
@@ -4573,4 +4573,820 @@ If not authenticated:
 
 ---
 
-*Part 4 will be written after Part 3 is implemented and verified.*
+## Part 4: Admin Team Approval + Dashboard Views
+
+**PRD Requirements Covered:** P4.R1 through P4.R8
+
+---
+
+### 4.1 Dependencies
+
+No new npm packages required for Part 4. All dependencies are already installed.
+
+---
+
+### 4.2 New Service Methods
+
+#### `team-service.ts` — Add `getAllTeamsForHackathon`
+
+```typescript
+export interface AdminTeamRow {
+  id: string;
+  name: string;
+  trackId: string | null;
+  trackName: string | null;
+  isOpen: boolean;
+  memberCount: number;
+  leadName: string | null;
+  adminStatus: 'pending_review' | 'approved' | 'rejected';
+  reviewReason: string | null;
+  createdAt: Date;
+}
+
+export async function getAllTeamsForHackathon(
+  hackathonId: string,
+  filters?: {
+    trackId?: string;
+    isOpen?: boolean;
+    adminStatus?: 'pending_review' | 'approved' | 'rejected';
+  }
+): Promise<AdminTeamRow[]>
+```
+
+Implementation — two-step query (same pattern as `getTeamWithMembers`):
+
+```typescript
+// Step 1: teams LEFT JOIN tracks, WHERE hackathonId AND deletedAt IS NULL
+const teamRows = await db
+  .select({
+    id: teams.id,
+    name: teams.name,
+    trackId: teams.trackId,
+    trackName: tracks.name,
+    isOpen: teams.isOpen,
+    adminStatus: teams.adminStatus,
+    reviewReason: teams.reviewReason,
+    createdAt: teams.createdAt,
+  })
+  .from(teams)
+  .leftJoin(tracks, eq(tracks.id, teams.trackId))
+  .where(
+    and(
+      eq(teams.hackathonId, hackathonId),
+      isNull(teams.deletedAt),
+      filters?.trackId ? eq(teams.trackId, filters.trackId) : undefined,
+      filters?.isOpen !== undefined ? eq(teams.isOpen, filters.isOpen) : undefined,
+      filters?.adminStatus ? eq(teams.adminStatus, filters.adminStatus) : undefined,
+    )
+  );
+
+if (teamRows.length === 0) return [];
+const teamIds = teamRows.map(t => t.id);
+
+// Step 2: team_members JOIN users for all teamIds — fetch count + lead name per team
+const memberRows = await db
+  .select({
+    teamId: teamMembers.teamId,
+    role: teamMembers.role,
+    userName: users.name,
+  })
+  .from(teamMembers)
+  .innerJoin(users, eq(users.id, teamMembers.userId))
+  .where(inArray(teamMembers.teamId, teamIds));
+
+// Step 3: correlate in JS
+return teamRows.map(team => {
+  const members = memberRows.filter(m => m.teamId === team.id);
+  const lead = members.find(m => m.role === 'lead');
+  return {
+    ...team,
+    memberCount: members.length,
+    leadName: lead?.userName ?? null,
+  };
+});
+```
+
+---
+
+#### `registration-service.ts` — Add `getOrgParticipantStats`
+
+```typescript
+export async function getOrgParticipantStats(
+  orgId: string
+): Promise<{ registered: number; participating: number }>
+```
+
+Implementation — two independent count queries run in parallel:
+
+```typescript
+const [regResult, partResult] = await Promise.all([
+  db
+    .select({ count: countDistinct(registrations.userId) })
+    .from(registrations)
+    .innerJoin(hackathons, eq(hackathons.id, registrations.hackathonId))
+    .where(
+      and(
+        eq(hackathons.orgId, orgId),
+        inArray(hackathons.status, ['active', 'published']),
+        isNull(registrations.deletedAt),
+      )
+    ),
+  db
+    .select({ count: countDistinct(teamMembers.userId) })
+    .from(teamMembers)
+    .innerJoin(teams, eq(teams.id, teamMembers.teamId))
+    .innerJoin(hackathons, eq(hackathons.id, teams.hackathonId))
+    .where(
+      and(
+        eq(hackathons.orgId, orgId),
+        inArray(hackathons.status, ['active', 'published']),
+        isNull(teams.deletedAt),
+      )
+    ),
+]);
+
+return {
+  registered: regResult[0]?.count ?? 0,
+  participating: partResult[0]?.count ?? 0,
+};
+```
+
+Import `countDistinct` from `drizzle-orm`. The `hackathons` table is already imported; add `teams` and `teamMembers` to imports if not already present.
+
+---
+
+### 4.3 API Routes
+
+Three new routes. All three are admin-only — auth via `requireOrgRole(orgId, 'org_admin')`. The `orgId` is resolved from the hackathon record (fetch hackathon by `hackathonId`, read `hackathon.orgId`).
+
+---
+
+#### `GET /api/hackathons/[hackathonId]/teams/all`
+
+New file: `src/app/api/hackathons/[hackathonId]/teams/all/route.ts`
+
+All teams for a hackathon regardless of open/closed or approval status. Separate from the public `GET /api/hackathons/[hackathonId]/teams` (which returns only open+approved for browse).
+
+| | |
+|---|---|
+| **Auth** | `requireOrgRole(hackathon.orgId, 'org_admin')` |
+| **Query** | `?trackId=`, `?isOpen=true\|false`, `?adminStatus=pending_review\|approved\|rejected` (all optional) |
+| **Success** | `200 { teams: AdminTeamRow[], requiresApproval: boolean }` |
+| **Errors** | 401 not authed · 403 not admin · 404 hackathon not found |
+
+Implementation:
+
+```typescript
+export async function GET(
+  req: Request,
+  { params }: { params: Promise<{ hackathonId: string }> }
+) {
+  const { hackathonId } = await params;
+  const hackathon = await getHackathonById(hackathonId);
+  if (!hackathon) return NextResponse.json({ message: 'Not found' }, { status: 404 });
+
+  const authResult = await requireOrgRole(hackathon.orgId, 'org_admin');
+  if ('error' in authResult) return authResult.error;
+
+  const { searchParams } = new URL(req.url);
+  const filters = {
+    trackId: searchParams.get('trackId') ?? undefined,
+    isOpen: searchParams.has('isOpen') ? searchParams.get('isOpen') === 'true' : undefined,
+    adminStatus: (searchParams.get('adminStatus') as AdminTeamRow['adminStatus']) ?? undefined,
+  };
+
+  const teams = await getAllTeamsForHackathon(hackathonId, filters);
+  return NextResponse.json({ teams, requiresApproval: hackathon.requiresApproval });
+}
+```
+
+---
+
+#### `POST /api/hackathons/[hackathonId]/teams/[teamId]/approve`
+
+New file: `src/app/api/hackathons/[hackathonId]/teams/[teamId]/approve/route.ts`
+
+| | |
+|---|---|
+| **Auth** | `requireOrgRole(hackathon.orgId, 'org_admin')` |
+| **Body** | None |
+| **Success** | `200 { success: true }` |
+| **Errors** | 400 team not in pending_review · 403 not admin · 404 hackathon or team not found |
+
+Implementation:
+
+```typescript
+export async function POST(
+  _req: Request,
+  { params }: { params: Promise<{ hackathonId: string; teamId: string }> }
+) {
+  const { hackathonId, teamId } = await params;
+  const hackathon = await getHackathonById(hackathonId);
+  if (!hackathon) return NextResponse.json({ message: 'Not found' }, { status: 404 });
+
+  const authResult = await requireOrgRole(hackathon.orgId, 'org_admin');
+  if ('error' in authResult) return authResult.error;
+
+  const team = await getTeamById(teamId);
+  if (!team || team.hackathonId !== hackathonId) {
+    return NextResponse.json({ message: 'Team not found' }, { status: 404 });
+  }
+  if (team.adminStatus !== 'pending_review') {
+    return NextResponse.json({ message: 'Team is not pending review' }, { status: 400 });
+  }
+
+  await approveTeam(teamId);
+  return NextResponse.json({ success: true });
+}
+```
+
+---
+
+#### `POST /api/hackathons/[hackathonId]/teams/[teamId]/reject`
+
+New file: `src/app/api/hackathons/[hackathonId]/teams/[teamId]/reject/route.ts`
+
+| | |
+|---|---|
+| **Auth** | `requireOrgRole(hackathon.orgId, 'org_admin')` |
+| **Body** | None |
+| **Success** | `200 { success: true }` |
+| **Errors** | 403 not admin · 404 hackathon or team not found |
+
+Implementation mirrors `approve` but calls `rejectTeam(teamId)`. No status precondition check — admins may reject an already-approved team (e.g., after a re-review).
+
+---
+
+### 4.4 Pages and Components
+
+---
+
+#### Increment 1: API Layer
+
+**Files to create (3 new route files):**
+
+1. `src/app/api/hackathons/[hackathonId]/teams/all/route.ts`
+2. `src/app/api/hackathons/[hackathonId]/teams/[teamId]/approve/route.ts`
+3. `src/app/api/hackathons/[hackathonId]/teams/[teamId]/reject/route.ts`
+
+**Files to modify (2 service files):**
+
+4. `src/lib/services/team-service.ts` — add `AdminTeamRow` interface and `getAllTeamsForHackathon`
+5. `src/lib/services/registration-service.ts` — add `getOrgParticipantStats`
+
+**Design notes:**
+
+- `getAllTeamsForHackathon` uses `inArray` from `drizzle-orm` — already imported in `team-service.ts` from Phase 3 work; confirm at write time.
+- `countDistinct` is imported from `drizzle-orm` — already used in `registration-service.ts` for `getRegistrationCount`; import alongside it.
+- The approve/reject routes share the pattern of fetching the hackathon first for `orgId`, then calling `requireOrgRole`. This matches the pattern used in all existing admin API routes.
+
+**Verify:** `npx tsc --noEmit` passes. No UI yet.
+
+---
+
+#### Increment 2: Admin Teams Dashboard Page (P4.R1 + P4.R2 + P4.R3)
+
+**Files to create (3 new files):**
+
+1. `src/app/(dashboard)/dashboard/[orgSlug]/hackathons/[hackathonId]/teams/page.tsx`
+2. `src/app/(dashboard)/dashboard/[orgSlug]/hackathons/[hackathonId]/teams/loading.tsx`
+3. `src/app/(dashboard)/dashboard/[orgSlug]/hackathons/[hackathonId]/teams/_components/admin-teams-client.tsx`
+
+**Files to modify (1 file — add sub-nav):**
+
+4. `src/app/(dashboard)/dashboard/[orgSlug]/hackathons/[hackathonId]/participants/page.tsx`
+
+---
+
+##### `src/app/(dashboard)/dashboard/[orgSlug]/hackathons/[hackathonId]/teams/page.tsx`
+
+Server component. Auth: `requireOrgRole`. Fetches all teams and passes to client.
+
+```typescript
+import { notFound, redirect } from 'next/navigation';
+import { requireOrgRole } from '@/lib/auth/require-org-role';
+import { getOrgBySlug } from '@/lib/services/org-service';
+import { getHackathonById } from '@/lib/services/hackathon-service';
+import { getAllTeamsForHackathon } from '@/lib/services/team-service';
+import { AdminTeamsClient } from './_components/admin-teams-client';
+
+export default async function AdminTeamsPage({
+  params,
+}: {
+  params: Promise<{ orgSlug: string; hackathonId: string }>;
+}) {
+  const { orgSlug, hackathonId } = await params;
+  const org = await getOrgBySlug(orgSlug);
+  if (!org) notFound();
+
+  const authResult = await requireOrgRole(org.id, 'org_admin');
+  if ('error' in authResult) redirect('/dashboard');
+
+  const hackathon = await getHackathonById(hackathonId);
+  if (!hackathon || hackathon.orgId !== org.id) notFound();
+
+  const teams = await getAllTeamsForHackathon(hackathonId);
+
+  return (
+    <div className="space-y-6 p-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold font-heading">Teams</h1>
+          <p className="text-sm text-muted-foreground">{hackathon.title}</p>
+        </div>
+        {/* Sub-nav: link to Participants */}
+        <nav className="flex gap-2 text-sm">
+          <a
+            href={`/dashboard/${orgSlug}/hackathons/${hackathonId}/participants`}
+            className="text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Participants
+          </a>
+          <span className="font-medium">Teams</span>
+        </nav>
+      </div>
+      <AdminTeamsClient
+        teams={teams}
+        requiresApproval={hackathon.requiresApproval}
+        hackathonId={hackathonId}
+      />
+    </div>
+  );
+}
+```
+
+---
+
+##### `src/app/(dashboard)/dashboard/[orgSlug]/hackathons/[hackathonId]/teams/loading.tsx`
+
+Table skeleton — two rows of six columns using `<Skeleton>`, same pattern as `participants/loading.tsx`.
+
+---
+
+##### `src/app/(dashboard)/dashboard/[orgSlug]/hackathons/[hackathonId]/teams/_components/admin-teams-client.tsx`
+
+Client component. Handles approval queue, full team table with search/filter, and approve/reject actions.
+
+```typescript
+'use client';
+
+import { useState, useMemo, useTransition } from 'react';
+import { toast } from 'sonner';
+
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import type { AdminTeamRow } from '@/lib/services/team-service';
+
+interface AdminTeamsClientProps {
+  teams: AdminTeamRow[];
+  requiresApproval: boolean;
+  hackathonId: string;
+}
+```
+
+**State:**
+
+- `localTeams: AdminTeamRow[]` — initialized from props, updated optimistically on approve/reject
+- `search: string` — team name filter
+- `trackFilter: string` — trackId or `'all'`
+- `statusFilter: 'all' | 'pending_review' | 'approved' | 'rejected'`
+- `isPending: boolean` — from `useTransition`
+
+**Sections:**
+
+**Pending Review section** — shown only when `requiresApproval === true` and at least one team has `adminStatus === 'pending_review'`:
+
+```tsx
+{requiresApproval && pendingTeams.length > 0 && (
+  <section className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 space-y-3">
+    <h2 className="font-semibold text-amber-600 dark:text-amber-400">
+      Pending Review ({pendingTeams.length})
+    </h2>
+    <div className="space-y-2">
+      {pendingTeams.map(team => (
+        <div key={team.id} className="flex items-center justify-between rounded border bg-card p-3">
+          <div>
+            <p className="font-medium">{team.name}</p>
+            <p className="text-sm text-muted-foreground">
+              Lead: {team.leadName ?? '—'} · {team.memberCount} member{team.memberCount !== 1 ? 's' : ''}
+              {team.reviewReason ? ` · ${team.reviewReason}` : ''}
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <Button size="sm" onClick={() => handleApprove(team.id)} disabled={isPending}>
+              Approve
+            </Button>
+            <Button size="sm" variant="destructive" onClick={() => handleReject(team.id)} disabled={isPending}>
+              Reject
+            </Button>
+          </div>
+        </div>
+      ))}
+    </div>
+  </section>
+)}
+```
+
+**handleApprove / handleReject** — POST to `/api/hackathons/[hackathonId]/teams/[teamId]/approve|reject`, wrapped in `startTransition`. On success: optimistically update `localTeams` adminStatus, show toast. On error: show error toast.
+
+```typescript
+async function handleApprove(teamId: string) {
+  startTransition(async () => {
+    const res = await fetch(
+      `/api/hackathons/${hackathonId}/teams/${teamId}/approve`,
+      { method: 'POST' }
+    );
+    if (!res.ok) {
+      toast.error('Failed to approve team.');
+      return;
+    }
+    setLocalTeams(prev =>
+      prev.map(t => t.id === teamId ? { ...t, adminStatus: 'approved', reviewReason: null } : t)
+    );
+    toast.success('Team approved.');
+  });
+}
+
+async function handleReject(teamId: string) {
+  startTransition(async () => {
+    const res = await fetch(
+      `/api/hackathons/${hackathonId}/teams/${teamId}/reject`,
+      { method: 'POST' }
+    );
+    if (!res.ok) {
+      toast.error('Failed to reject team.');
+      return;
+    }
+    setLocalTeams(prev =>
+      prev.map(t => t.id === teamId ? { ...t, adminStatus: 'rejected' } : t)
+    );
+    toast.success('Team rejected.');
+  });
+}
+```
+
+**All Teams table** — filtered by search + trackFilter + statusFilter:
+
+```tsx
+<Table>
+  <TableHeader>
+    <TableRow>
+      <TableHead>Team</TableHead>
+      <TableHead>Track</TableHead>
+      <TableHead>Open</TableHead>
+      <TableHead>Members</TableHead>
+      <TableHead>Lead</TableHead>
+      {requiresApproval && <TableHead>Status</TableHead>}
+      <TableHead>Created</TableHead>
+    </TableRow>
+  </TableHeader>
+  <TableBody>
+    {filteredTeams.map(team => (
+      <TableRow key={team.id}>
+        <TableCell className="font-medium">{team.name}</TableCell>
+        <TableCell>{team.trackName ?? <span className="text-muted-foreground">—</span>}</TableCell>
+        <TableCell>
+          <Badge variant={team.isOpen ? 'outline' : 'secondary'}>
+            {team.isOpen ? 'Open' : 'Closed'}
+          </Badge>
+        </TableCell>
+        <TableCell>{team.memberCount}</TableCell>
+        <TableCell>{team.leadName ?? '—'}</TableCell>
+        {requiresApproval && (
+          <TableCell>
+            <AdminStatusBadge status={team.adminStatus} />
+          </TableCell>
+        )}
+        <TableCell className="text-muted-foreground text-sm">
+          {team.createdAt.toLocaleDateString()}
+        </TableCell>
+      </TableRow>
+    ))}
+  </TableBody>
+</Table>
+```
+
+**`AdminStatusBadge`** — inline helper function returning a `<Badge>` with color mapping:
+- `'pending_review'` → amber variant / label "Under Review"
+- `'approved'` → green outline / label "Approved"
+- `'rejected'` → destructive / label "Rejected"
+
+**`filteredTeams`** — `useMemo` on `localTeams`:
+
+```typescript
+const filteredTeams = useMemo(() => {
+  return localTeams.filter(t => {
+    const matchesSearch = t.name.toLowerCase().includes(search.toLowerCase());
+    const matchesTrack = trackFilter === 'all' || t.trackId === trackFilter;
+    const matchesStatus = statusFilter === 'all' || t.adminStatus === statusFilter;
+    return matchesSearch && matchesTrack && matchesStatus;
+  });
+}, [localTeams, search, trackFilter, statusFilter]);
+```
+
+Track filter options are derived from `useMemo(() => [...new Set(teams.map(t => t.trackId).filter(Boolean))], [teams])` — just unique trackId+trackName pairs.
+
+---
+
+##### Add sub-navigation to `participants/page.tsx` (P4.R3)
+
+Modify `src/app/(dashboard)/dashboard/[orgSlug]/hackathons/[hackathonId]/participants/page.tsx` — add a sub-nav row below the page heading that links to Participants (active) and Teams. Match the same structure used in the teams page above.
+
+```tsx
+<nav className="flex gap-2 text-sm">
+  <span className="font-medium">Participants</span>
+  <a
+    href={`/dashboard/${orgSlug}/hackathons/${hackathonId}/teams`}
+    className="text-muted-foreground hover:text-foreground transition-colors"
+  >
+    Teams
+  </a>
+</nav>
+```
+
+**Verify:** `npx tsc --noEmit` passes. Admin teams page renders; pending review section appears when `requiresApproval = true`; approve/reject buttons POST to the correct routes; table search and filters work.
+
+---
+
+#### Increment 3: Org Dashboard Stats + My Hackathons Enhancement (P4.R4 + P4.R5 + P4.R6)
+
+**Files to modify (3 files):**
+
+1. `src/app/(dashboard)/dashboard/[orgSlug]/page.tsx`
+2. `src/app/(dashboard)/dashboard/[orgSlug]/my-hackathons/page.tsx`
+3. `src/app/(dashboard)/dashboard/[orgSlug]/my-hackathons/_components/my-hackathon-card.tsx`
+
+---
+
+##### `src/app/(dashboard)/dashboard/[orgSlug]/page.tsx` — Org Dashboard Stat Cards (P4.R6)
+
+The current page already renders stat cards (total hackathons, members, etc. from Phase 2). Add two new stat cards: **Registered** and **Participating**. These must appear as explicitly separate cards — never combined.
+
+Add import and call:
+
+```typescript
+import { getOrgParticipantStats } from '@/lib/services/registration-service';
+```
+
+In the existing data-fetch block (alongside other stat fetches, using `Promise.all`):
+
+```typescript
+const [/* existing stats */, participantStats] = await Promise.all([
+  // ... existing parallel fetches
+  getOrgParticipantStats(org.id),
+]);
+```
+
+Add two `<StatCard>` components after the existing cards:
+
+```tsx
+<StatCard
+  title="Registered"
+  value={participantStats.registered}
+  description="Across active hackathons"
+/>
+<StatCard
+  title="Participating"
+  value={participantStats.participating}
+  description="On a team in active hackathons"
+/>
+```
+
+**Design note:** "Registered" is total distinct users with a registration record. "Participating" is total distinct users currently on a team. The gap (`registered − participating`) represents solo participants — this is intentional and visible.
+
+---
+
+##### `src/app/(dashboard)/dashboard/[orgSlug]/my-hackathons/page.tsx` — Add Phases (P4.R5)
+
+The existing server page fetches registrations for the current user via `getRegistrationsByUser` or a similar method. To compute the phase countdown, the page needs `phases` for each hackathon.
+
+Extend the data fetch to also query phases. If `getPhasesByHackathon(hackathonId)` exists in `hackathon-service.ts`, use it. Otherwise, query directly:
+
+```typescript
+import { phases as phasesTable } from '@/db/schema';
+import { inArray } from 'drizzle-orm';
+
+// After fetching hackathon list:
+const hackathonIds = myHackathons.map(h => h.hackathonId);
+const allPhases = hackathonIds.length
+  ? await db
+      .select()
+      .from(phasesTable)
+      .where(inArray(phasesTable.hackathonId, hackathonIds))
+  : [];
+```
+
+Compute per-hackathon active phase deadline:
+
+```typescript
+function getActivePhaseDeadline(
+  phases: typeof allPhases,
+  hackathonId: string
+): { label: string; deadline: Date } | null {
+  const active = phases
+    .filter(p => p.hackathonId === hackathonId && p.status === 'active' && p.endDate)
+    .sort((a, b) => a.order - b.order)[0];
+  if (!active) return null;
+  return { label: active.name, deadline: active.endDate! };
+}
+```
+
+Pass `activePhase` to each `MyHackathonCard`.
+
+---
+
+##### `src/app/(dashboard)/dashboard/[orgSlug]/my-hackathons/_components/my-hackathon-card.tsx` — Enhanced Team State + Countdown (P4.R4 + P4.R5)
+
+Update props interface:
+
+```typescript
+interface MyHackathonCardProps {
+  hackathonTitle: string;
+  hackathonSlug: string;
+  coverImageUrl: string | null;
+  hackathonStatus: string;
+  team: {
+    id: string;
+    name: string;
+    adminStatus: 'pending_review' | 'approved' | 'rejected';
+    memberCount: number;
+    trackName: string | null;
+  } | null;
+  activePhase: { label: string; deadline: Date } | null;
+  orgSlug: string;
+  hackathonId: string;
+}
+```
+
+**Team state rendering** — four distinct variants (P4.R4):
+
+```tsx
+function TeamStateSection({ team, hackathonSlug, orgSlug, hackathonId }: Pick<...>) {
+  if (!team) {
+    return (
+      <div className="flex gap-2 mt-3">
+        <Button size="sm" variant="outline" asChild>
+          <a href={`/hackathons/${hackathonSlug}/teams`}>Find a Team</a>
+        </Button>
+        <Button size="sm" asChild>
+          <a href={`/hackathons/${hackathonSlug}/teams?create=1`}>Create a Team</a>
+        </Button>
+      </div>
+    );
+  }
+
+  if (team.adminStatus === 'approved') {
+    return (
+      <div className="mt-3 flex items-center justify-between">
+        <div>
+          <p className="font-medium text-sm">{team.name}</p>
+          <p className="text-xs text-muted-foreground">
+            {team.memberCount} member{team.memberCount !== 1 ? 's' : ''}
+            {team.trackName ? ` · ${team.trackName}` : ''}
+          </p>
+        </div>
+        <Button size="sm" asChild>
+          <a href={`/hackathons/${hackathonSlug}/teams/${team.id}`}>View Team</a>
+        </Button>
+      </div>
+    );
+  }
+
+  if (team.adminStatus === 'pending_review') {
+    return (
+      <div className="mt-3 rounded border border-amber-500/30 bg-amber-500/10 px-3 py-2">
+        <p className="text-sm font-medium text-amber-600 dark:text-amber-400">Under Review</p>
+        <p className="text-xs text-muted-foreground">Your team is being reviewed by the organizers.</p>
+      </div>
+    );
+  }
+
+  // rejected
+  return (
+    <div className="mt-3 rounded border border-destructive/30 bg-destructive/10 px-3 py-2">
+      <p className="text-sm font-medium text-destructive">Not Approved</p>
+      <p className="text-xs text-muted-foreground">Contact the organiser for details.</p>
+    </div>
+  );
+}
+```
+
+**Phase countdown** (P4.R5) — computed client-side via `useMemo` or server-side as a string:
+
+```tsx
+function PhaseCountdown({ activePhase }: { activePhase: { label: string; deadline: Date } | null }) {
+  if (!activePhase) return null;
+
+  const msRemaining = activePhase.deadline.getTime() - Date.now();
+  const daysRemaining = Math.max(0, Math.ceil(msRemaining / (1000 * 60 * 60 * 24)));
+
+  const label = daysRemaining === 0
+    ? `${activePhase.label} closes today`
+    : daysRemaining === 1
+    ? `${activePhase.label} closes tomorrow`
+    : `${activePhase.label} closes in ${daysRemaining} days`;
+
+  return (
+    <p className="text-xs text-muted-foreground mt-2">{label}</p>
+  );
+}
+```
+
+If `hackathonStatus === 'completed'` or no active phase: show "Hackathon completed." or nothing.
+
+**Verify:** `npx tsc --noEmit` passes. Org dashboard shows two separate stat cards. My Hackathons shows all four team state variants. Countdown label reflects the active phase correctly.
+
+---
+
+#### Increment 4: Landing Page Browse Entry Points + End-of-Phase Audit (P4.R7 + P4.R8)
+
+**Files to modify (2 files):**
+
+1. `src/app/(public)/hackathons/[slug]/_components/registration-cta.tsx`
+2. `src/app/(public)/hackathons/[slug]/_components/landing-nav.tsx`
+
+---
+
+##### Browse Entry Points on Landing Page (P4.R7)
+
+**`registration-cta.tsx`** — add browse links below the main CTA button when hackathon status is `'active'`.
+
+The component already receives `hackathonStatus` and `hackathonSlug` as props. Add a conditional row below the main Button:
+
+```tsx
+{hackathonStatus === 'active' && (
+  <div className="flex gap-4 justify-center mt-3">
+    <a
+      href={`/hackathons/${hackathonSlug}/teams`}
+      className="text-sm text-muted-foreground hover:text-foreground transition-colors underline-offset-4 hover:underline"
+    >
+      Browse Teams
+    </a>
+    <a
+      href={`/hackathons/${hackathonSlug}/participants`}
+      className="text-sm text-muted-foreground hover:text-foreground transition-colors underline-offset-4 hover:underline"
+    >
+      Browse Participants
+    </a>
+  </div>
+)}
+```
+
+**Design note:** "Browse Teams" links to the public page (no auth required). "Browse Participants" requires login — if the user clicks while unauthenticated, the `/hackathons/[slug]/participants/page.tsx` already redirects to `/login?callbackUrl=...` (implemented in Part 3). No special handling needed here.
+
+**`landing-nav.tsx`** — no changes required. The scroll-spy nav handles section anchors; browse links live in the hero CTA area. Keeping them separate preserves the nav's single-purpose design.
+
+---
+
+##### End-of-Phase Audit (P4.R8)
+
+Run the following checks after all four increments pass:
+
+1. `npx tsc --noEmit` — zero errors
+2. `npx next build` — zero errors, all dynamic routes render
+3. Verify all new routes appear in build output:
+   - `api/hackathons/[hackathonId]/teams/all`
+   - `api/hackathons/[hackathonId]/teams/[teamId]/approve`
+   - `api/hackathons/[hackathonId]/teams/[teamId]/reject`
+   - `dashboard/[orgSlug]/hackathons/[hackathonId]/teams`
+4. Update `docs/004-architecture.md`:
+   - Status: `Phase 3 Part 3 Complete` → `Phase 3 Complete`
+   - Folder structure: add admin teams page + loading + client component; add 3 new API routes
+   - Service descriptions: update `team-service.ts` and `registration-service.ts` entries
+5. Update `CHANGELOG.md` with Part 4 entry
+
+---
+
+### 4.5 Acceptance Criteria
+
+- [ ] `getAllTeamsForHackathon` returns all non-deleted teams for a hackathon with `memberCount` and `leadName`
+- [ ] `getOrgParticipantStats` returns distinct `registered` and `participating` counts across active hackathons for the org
+- [ ] `GET /api/hackathons/[hackathonId]/teams/all` returns all teams; gated to org_admin
+- [ ] `POST .../approve` sets `adminStatus = 'approved'`, clears `reviewReason`, sends `teamApprovedEmail` to all members
+- [ ] `POST .../reject` sets `adminStatus = 'rejected'`, sends `teamRejectedEmail` to lead
+- [ ] Admin teams page at `/dashboard/[orgSlug]/hackathons/[hackathonId]/teams` renders correctly
+- [ ] Pending Review section only appears when `requiresApproval = true` and pending teams exist
+- [ ] Each pending row shows `review_reason` when set
+- [ ] Approve/Reject buttons optimistically update the row; toast confirms action
+- [ ] Table search by name, track filter, open/closed filter, and status filter all work
+- [ ] `adminStatus` column only shown when `requiresApproval = true`
+- [ ] Sub-navigation between Participants and Teams accessible on both pages; gated to org_admin
+- [ ] Org dashboard shows "Registered" and "Participating" as two distinct stat cards
+- [ ] "My Hackathons" card shows all four team states: approved (name + member count + View Team link) / pending_review (amber banner) / rejected (red banner) / no team (Find + Create CTAs)
+- [ ] Phase countdown label reflects the correct active phase; shows "Hackathon completed." when no active phase
+- [ ] "Browse Teams" and "Browse Participants" links appear below the main CTA on the landing page only when `hackathonStatus === 'active'`
+- [ ] `docs/004-architecture.md` fully updated for Part 4
+- [ ] `CHANGELOG.md` has entries for all 4 parts of Phase 3
+- [ ] `npx tsc --noEmit` passes with zero errors
+- [ ] `npx next build` succeeds with zero errors
+
+---
+
+*Part 4 complete when all 4 increments pass, `npx next build` has zero errors, and architecture + changelog docs are updated.*
+
+---
+
+*Phase 3 TRD complete.*
