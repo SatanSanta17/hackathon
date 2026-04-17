@@ -20,6 +20,7 @@ import { StepBasicInfo } from './step-basic-info';
 import { StepTracks } from './step-tracks';
 import { StepTimeline } from './step-timeline';
 import { StepTeamRules } from './step-team-rules';
+import { StepParticipation } from './step-participation';
 import { StepPrizes } from './step-prizes';
 import { StepRulesFaqs } from './step-rules-faqs';
 import { StepReview } from './step-review';
@@ -31,6 +32,7 @@ import type {
   Prize,
   HackathonTemplate,
 } from '@/lib/services/hackathon-service';
+import type { RegistrationFieldInput } from '@/lib/validations/registration';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -42,9 +44,10 @@ const STEPS = [
   { number: 3, name: 'Tracks' },
   { number: 4, name: 'Timeline' },
   { number: 5, name: 'Team Rules' },
-  { number: 6, name: 'Prizes' },
-  { number: 7, name: 'Rules & FAQs' },
-  { number: 8, name: 'Review & Publish' },
+  { number: 6, name: 'Participation' },
+  { number: 7, name: 'Prizes' },
+  { number: 8, name: 'Rules & FAQs' },
+  { number: 9, name: 'Review & Publish' },
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -72,8 +75,9 @@ type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
  */
 function getFurthestStep(data: HackathonWithRelations): number {
   const { hackathon: h, phases, tracks, prizes } = data;
-  if (h.rulesHtml || h.faqsHtml) return 8;
-  if (prizes.length > 0) return 7;
+  if (h.rulesHtml || h.faqsHtml) return 9;
+  if (prizes.length > 0) return 8;
+  if (h.requiresApproval) return 7;
   if (h.teamMinSize !== 1 || h.teamMaxSize !== 5) return 6;
   const allPhaseDates = phases.every((p) => p.startDate && p.endDate);
   if (allPhaseDates && phases.length > 0) return 5;
@@ -102,7 +106,7 @@ export function WizardShell({
 
   const isEditMode = !!hackathon;
   const [currentStep, setCurrentStepRaw] = useState(isEditMode ? 2 : 1);
-  const [highestStepReached, setHighestStepReached] = useState(isEditMode ? 8 : 1);
+  const [highestStepReached, setHighestStepReached] = useState(isEditMode ? 9 : 1);
   const [hackathonId, setHackathonId] = useState<string | null>(
     hackathon?.hackathon.id ?? null,
   );
@@ -112,6 +116,16 @@ export function WizardShell({
   const [phasesData, setPhasesData] = useState<Phase[]>(hackathon?.phases ?? []);
   const [tracksData, setTracksData] = useState<Track[]>(hackathon?.tracks ?? []);
   const [prizesData, setPrizesData] = useState<Prize[]>(hackathon?.prizes ?? []);
+  const [registrationFieldsData, setRegistrationFieldsData] = useState<RegistrationFieldInput[]>(
+    (hackathon?.registrationFields ?? []).map((f) => ({
+      id: f.id,
+      label: f.label,
+      fieldType: f.fieldType as RegistrationFieldInput['fieldType'],
+      options: f.options,
+      required: f.required,
+      order: f.order,
+    })),
+  );
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle');
 
   // Track which optional steps (5, 6, 7) the user has explicitly visited & saved.
@@ -120,7 +134,7 @@ export function WizardShell({
     const initial = new Set<number>();
     if (hackathon) {
       // Edit mode — all steps considered visited
-      for (let i = 1; i <= 8; i++) initial.add(i);
+      for (let i = 1; i <= 9; i++) initial.add(i);
     }
     return initial;
   });
@@ -235,7 +249,7 @@ export function WizardShell({
   );
 
   const handleNext = useCallback(() => {
-    if (currentStep < 8) {
+    if (currentStep < 9) {
       setCurrentStep((prev) => prev + 1);
     }
   }, [currentStep, setCurrentStep]);
@@ -301,16 +315,21 @@ export function WizardShell({
           return visitedSteps.has(5) ? 'complete' : 'not_started';
 
         case 6:
-          // Optional — complete once visited (zero prizes is valid)
+          // Optional — complete once visited (empty fields + approval off is valid)
           if (!hackathonId) return 'not_started';
           return visitedSteps.has(6) ? 'complete' : 'not_started';
 
         case 7:
-          // Optional — complete once visited (empty rules/FAQs is valid)
+          // Optional — complete once visited (zero prizes is valid)
           if (!hackathonId) return 'not_started';
           return visitedSteps.has(7) ? 'complete' : 'not_started';
 
         case 8:
+          // Optional — complete once visited (empty rules/FAQs is valid)
+          if (!hackathonId) return 'not_started';
+          return visitedSteps.has(8) ? 'complete' : 'not_started';
+
+        case 9:
           // Review step — never "complete" (it's the publish action)
           return 'not_started';
 
@@ -400,6 +419,20 @@ export function WizardShell({
         ) : null;
       case 6:
         return hackathonId ? (
+          <StepParticipation
+            hackathonId={hackathonId}
+            orgId={orgId}
+            initialRequiresApproval={hackathonData.requiresApproval ?? false}
+            initialFields={registrationFieldsData}
+            onSave={(data) => {
+              setHackathonData((prev) => ({ ...prev, requiresApproval: data.requiresApproval }));
+              setRegistrationFieldsData(data.fields);
+            }}
+            onNext={handleNext}
+          />
+        ) : null;
+      case 7:
+        return hackathonId ? (
           <StepPrizes
             hackathonId={hackathonId}
             orgId={orgId}
@@ -407,7 +440,7 @@ export function WizardShell({
             onPrizesChange={handlePrizesChange}
           />
         ) : null;
-      case 7:
+      case 8:
         return hackathonId ? (
           <StepRulesFaqs
             hackathonId={hackathonId}
@@ -417,7 +450,7 @@ export function WizardShell({
             onNext={handleNext}
           />
         ) : null;
-      case 8:
+      case 9:
         return hackathonId ? (
           <StepReview
             hackathonId={hackathonId}
@@ -541,8 +574,8 @@ export function WizardShell({
         {/* Step content */}
         <div className="flex-1">{renderStepContent()}</div>
 
-        {/* Navigation footer — hidden on Step 8 (Review has its own actions) */}
-        {currentStep !== 8 && (currentStep > 1 || (currentStep === 1 && hackathonId)) && (
+        {/* Navigation footer — hidden on Step 9 (Review has its own actions) */}
+        {currentStep !== 9 && (currentStep > 1 || (currentStep === 1 && hackathonId)) && (
           <div className="mt-6 flex items-center justify-between border-t pt-4">
             <Button variant="outline" onClick={handleBack}>
               Back
@@ -551,8 +584,8 @@ export function WizardShell({
               <Button variant="ghost" onClick={handleSaveDraft}>
                 Save Draft
               </Button>
-              {/* Steps 2, 4, 5, 7 have their own Save & Continue — hide Next for those and step 8 */}
-              {![2, 4, 5, 7, 8].includes(currentStep) && currentStep < 8 && (
+              {/* Steps 2, 4, 5, 6, 8 have their own Save & Continue — hide Next for those and step 9 */}
+              {![2, 4, 5, 6, 8, 9].includes(currentStep) && currentStep < 9 && (
                 <Button onClick={handleNext}>Next</Button>
               )}
             </div>

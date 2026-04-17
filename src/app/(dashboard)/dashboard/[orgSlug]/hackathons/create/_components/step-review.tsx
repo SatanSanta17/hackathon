@@ -323,7 +323,7 @@ export function StepReview({
         </ReviewSection>
 
         {/* Prizes */}
-        <ReviewSection title="Prizes" onEdit={() => onNavigateToStep(6)}>
+        <ReviewSection title="Prizes" onEdit={() => onNavigateToStep(7)}>
           {prizesData.length > 0 ? (
             <ul className="space-y-1">
               {prizesData.map((prize) => (
@@ -341,7 +341,7 @@ export function StepReview({
         </ReviewSection>
 
         {/* Rules & FAQs */}
-        <ReviewSection title="Rules & FAQs" onEdit={() => onNavigateToStep(7)}>
+        <ReviewSection title="Rules & FAQs" onEdit={() => onNavigateToStep(8)}>
           <div className="space-y-2 text-sm">
             <p>
               Rules:{' '}
