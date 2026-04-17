@@ -18,6 +18,12 @@ export const createRegistrationSchema = z.object({
   isDiscoverable: z.boolean().default(true),
 });
 
+export const updateRegistrationSchema = z.object({
+  formData: z.record(z.string(), z.string()).optional().nullable(),
+  isDiscoverable: z.boolean().optional(),
+});
+
 export type RegistrationFieldInput = z.infer<typeof registrationFieldSchema>;
 export type UpsertRegistrationFieldsInput = z.infer<typeof upsertRegistrationFieldsSchema>;
 export type CreateRegistrationInput = z.infer<typeof createRegistrationSchema>;
+export type UpdateRegistrationInput = z.infer<typeof updateRegistrationSchema>;

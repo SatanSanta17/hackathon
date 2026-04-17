@@ -1,7 +1,8 @@
-import { and, count, eq, isNull } from 'drizzle-orm';
+import { and, count, desc, eq, isNull } from 'drizzle-orm';
 
 import { db } from '@/db';
 import {
+  hackathons,
   registrationFields,
   registrations,
   teamMembers,
@@ -259,4 +260,125 @@ export async function getRegistrationCount(hackathonId: string): Promise<number>
     );
 
   return result?.count ?? 0;
+}
+
+// ---------------------------------------------------------------------------
+// User-scoped (My Hackathons)
+// ---------------------------------------------------------------------------
+
+export interface UserHackathonSummary {
+  registrationId: string;
+  hackathonId: string;
+  registeredAt: Date;
+  formData: Record<string, string> | null;
+  hackathon: {
+    title: string;
+    slug: string;
+    status: string;
+    coverImageKey: string | null;
+    requiresApproval: boolean;
+  };
+  team: {
+    id: string;
+    name: string;
+    adminStatus: string;
+    memberCount: number;
+  } | null;
+}
+
+export async function getRegistrationsByUser(
+  userId: string,
+): Promise<UserHackathonSummary[]> {
+  const rows = await db
+    .select({
+      registrationId: registrations.id,
+      hackathonId: registrations.hackathonId,
+      registeredAt: registrations.registeredAt,
+      formData: registrations.formData,
+      hackathonTitle: hackathons.title,
+      hackathonSlug: hackathons.slug,
+      hackathonStatus: hackathons.status,
+      hackathonCoverImageKey: hackathons.coverImageKey,
+      hackathonRequiresApproval: hackathons.requiresApproval,
+    })
+    .from(registrations)
+    .innerJoin(hackathons, eq(registrations.hackathonId, hackathons.id))
+    .where(
+      and(
+        eq(registrations.userId, userId),
+        isNull(registrations.deletedAt),
+        isNull(hackathons.deletedAt),
+      ),
+    )
+    .orderBy(desc(registrations.registeredAt));
+
+  return Promise.all(
+    rows.map(async (row) => {
+      // Inline team lookup to avoid circular import with team-service
+      const [teamRow] = await db
+        .select({
+          teamId: teamMembers.teamId,
+          teamName: teams.name,
+          adminStatus: teams.adminStatus,
+        })
+        .from(teamMembers)
+        .innerJoin(teams, eq(teams.id, teamMembers.teamId))
+        .where(
+          and(
+            eq(teamMembers.userId, userId),
+            eq(teams.hackathonId, row.hackathonId),
+            isNull(teams.deletedAt),
+          ),
+        )
+        .limit(1);
+
+      let teamWithCount: UserHackathonSummary['team'] = null;
+      if (teamRow) {
+        const [{ memberCount }] = await db
+          .select({ memberCount: count() })
+          .from(teamMembers)
+          .where(eq(teamMembers.teamId, teamRow.teamId));
+
+        teamWithCount = {
+          id: teamRow.teamId,
+          name: teamRow.teamName,
+          adminStatus: teamRow.adminStatus,
+          memberCount,
+        };
+      }
+
+      return {
+        registrationId: row.registrationId,
+        hackathonId: row.hackathonId,
+        registeredAt: row.registeredAt,
+        formData: row.formData as Record<string, string> | null,
+        hackathon: {
+          title: row.hackathonTitle,
+          slug: row.hackathonSlug,
+          status: row.hackathonStatus,
+          coverImageKey: row.hackathonCoverImageKey,
+          requiresApproval: row.hackathonRequiresApproval,
+        },
+        team: teamWithCount,
+      };
+    }),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Update
+// ---------------------------------------------------------------------------
+
+export async function updateRegistration(
+  registrationId: string,
+  data: { formData?: Record<string, string> | null; isDiscoverable?: boolean },
+): Promise<Registration> {
+  const [updated] = await db
+    .update(registrations)
+    .set({ ...data, updatedAt: new Date() })
+    .where(eq(registrations.id, registrationId))
+    .returning();
+
+  if (!updated) throw new Error('REGISTRATION_NOT_FOUND');
+  return updated;
 }

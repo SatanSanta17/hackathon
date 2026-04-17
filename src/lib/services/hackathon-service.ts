@@ -16,9 +16,11 @@ import type {
   Track,
   Prize,
   HackathonTemplate,
+  RegistrationField,
 } from '@/db/schema';
 import { slugify } from '@/lib/utils';
 import { applyStatusResolution } from './hackathon-lifecycle';
+import { getRegistrationFields } from './registration-service';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -39,6 +41,7 @@ export interface HackathonWithRelations {
   phases: Phase[];
   tracks: Track[];
   prizes: Prize[];
+  registrationFields?: RegistrationField[];
 }
 
 // Re-export schema types for consumers
@@ -196,10 +199,13 @@ export async function getHackathonById(params: {
     relations = await fetchHackathonRelations(hackathon.id);
   }
 
+  const registrationFields = await getRegistrationFields(hackathon.id);
+
   return {
     hackathon: { ...hackathon, status: hackathonStatus },
     orgName: org?.name ?? 'Unknown Organization',
     ...relations,
+    registrationFields,
   };
 }
 
