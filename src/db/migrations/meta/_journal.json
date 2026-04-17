@@ -22,6 +22,13 @@
       "when": 1776344167993,
       "tag": "0002_quiet_maestro",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1776426190062,
+      "tag": "0003_minor_deathbird",
+      "breakpoints": true
     }
   ]
 }

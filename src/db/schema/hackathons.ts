@@ -18,6 +18,7 @@ export const hackathons = pgTable('hackathons', {
   teamMinSize: integer('team_min_size').notNull().default(1),
   teamMaxSize: integer('team_max_size').notNull().default(5),
   allowIndividual: boolean('allow_individual').notNull().default(true),
+  requiresApproval: boolean('requires_approval').notNull().default(false),
   rulesHtml: text('rules_html'),
   faqsHtml: text('faqs_html'),
   createdBy: uuid('created_by').notNull().references(() => users.id),

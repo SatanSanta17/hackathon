@@ -29,6 +29,7 @@ export const updateHackathonSchema = z
     teamMinSize: z.number().int().min(1).max(20).optional(),
     teamMaxSize: z.number().int().min(1).max(20).optional(),
     allowIndividual: z.boolean().optional(),
+    requiresApproval: z.boolean().optional(),
     rulesHtml: z.string().max(50000, 'Rules content too long').optional().nullable(),
     faqsHtml: z.string().max(50000, 'FAQs content too long').optional().nullable(),
   })

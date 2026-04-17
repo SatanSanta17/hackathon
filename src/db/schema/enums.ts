@@ -40,3 +40,18 @@ export const phaseStatusEnum = pgEnum('phase_status', [
   'active',
   'completed',
 ]);
+
+// Phase 3 enums
+export const teamRoleEnum = pgEnum('team_role', ['lead', 'member']);
+
+export const teamAdminStatusEnum = pgEnum('team_admin_status', [
+  'pending_review',
+  'approved',
+  'rejected',
+]);
+
+export const joinRequestStatusEnum = pgEnum('join_request_status', [
+  'pending',
+  'accepted',
+  'rejected',
+]);
