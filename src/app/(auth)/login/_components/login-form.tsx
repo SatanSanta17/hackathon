@@ -11,7 +11,11 @@ import { Button } from '@/components/ui/button';
 import { FormField, FormPasswordField, FormMessage } from '@/components/ui/form';
 import { loginSchema, type LoginInput } from '@/lib/validations/auth';
 
-export function LoginForm() {
+interface LoginFormProps {
+  onSuccess?: () => void;
+}
+
+export function LoginForm({ onSuccess }: LoginFormProps = {}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get('callbackUrl') ?? '/dashboard';
@@ -45,8 +49,13 @@ export function LoginForm() {
         return;
       }
 
-      router.push(callbackUrl);
-      router.refresh();
+      if (onSuccess) {
+        router.refresh();
+        onSuccess();
+      } else {
+        router.push(callbackUrl);
+        router.refresh();
+      }
     } catch {
       setServerError('Network error. Please check your connection.');
     }

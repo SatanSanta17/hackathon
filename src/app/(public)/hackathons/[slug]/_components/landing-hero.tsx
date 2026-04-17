@@ -1,9 +1,10 @@
 import Image from 'next/image';
 
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import type { RegistrationField } from '@/db/schema';
 
 import { ShareButtons } from './share-buttons';
+import { RegistrationCta, type CtaState } from './registration-cta';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -17,6 +18,9 @@ interface LandingHeroProps {
   registrationStart: Date | string | null;
   registrationEnd: Date | string | null;
   pageUrl: string;
+  ctaState: CtaState;
+  hackathonSlug: string;
+  registrationFields: RegistrationField[];
 }
 
 // ---------------------------------------------------------------------------
@@ -31,8 +35,10 @@ export function LandingHero({
   registrationStart,
   registrationEnd,
   pageUrl,
+  ctaState,
+  hackathonSlug,
+  registrationFields,
 }: LandingHeroProps) {
-  const isCompleted = status === 'completed';
 
   return (
     <section className="relative w-full overflow-hidden">
@@ -82,13 +88,12 @@ export function LandingHero({
 
         {/* CTA + Share row */}
         <div className="mt-8 flex flex-wrap items-center gap-4">
-          <Button
-            size="lg"
-            disabled={status !== 'published' && status !== 'active'}
-            className="font-heading text-base font-semibold"
-          >
-            {isCompleted ? 'View Results' : 'Register Now'}
-          </Button>
+          <RegistrationCta
+            ctaState={ctaState}
+            hackathonSlug={hackathonSlug}
+            hackathonTitle={title}
+            registrationFields={registrationFields}
+          />
 
           <ShareButtons title={title} pageUrl={pageUrl} />
         </div>

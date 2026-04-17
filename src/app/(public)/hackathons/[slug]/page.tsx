@@ -1,8 +1,12 @@
 import { notFound } from 'next/navigation';
 import type { Metadata } from 'next';
 
+import { auth } from '@/lib/auth/auth';
 import { getHackathonBySlug } from '@/lib/services/hackathon-service';
+import { getRegistrationByUserAndHackathon, getRegistrationFields } from '@/lib/services/registration-service';
+import { getUserTeamForHackathon } from '@/lib/services/team-service';
 import { getStorageProvider } from '@/lib/storage';
+import type { CtaState } from './_components/registration-cta';
 
 import { LandingNav } from './_components/landing-nav';
 import { LandingHero } from './_components/landing-hero';
@@ -151,6 +155,49 @@ export default async function HackathonLandingPage({ params }: PageProps) {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://hackforge.com';
   const pageUrl = `${appUrl}/hackathons/${slug}`;
 
+  // Determine CTA state
+  const session = await auth();
+  const registrationFields = await getRegistrationFields(hackathon.id);
+
+  function isRegOpen(): boolean {
+    const reg = sortedPhases.find((p) => p.type === 'registration');
+    if (!reg) return hackathon.status === 'published';
+    const now = new Date();
+    const start = reg.startDate ? new Date(reg.startDate) : null;
+    const end = reg.endDate ? new Date(reg.endDate) : null;
+    if (start && now < start) return false;
+    if (end && now > end) return false;
+    return hackathon.status === 'published';
+  }
+
+  let ctaState: CtaState;
+
+  if (hackathon.status === 'completed') {
+    ctaState = { type: 'completed' };
+  } else if (!session?.user?.id) {
+    ctaState = { type: 'unauthenticated' };
+  } else {
+    const userId = session.user.id;
+    const registration = await getRegistrationByUserAndHackathon(userId, hackathon.id);
+
+    if (!registration) {
+      ctaState = isRegOpen()
+        ? { type: 'register', hackathonId: hackathon.id }
+        : { type: 'registration_closed' };
+    } else {
+      const team = await getUserTeamForHackathon(userId, hackathon.id);
+      if (!team) {
+        ctaState = { type: 'find_team', teamsUrl: `/hackathons/${slug}/teams` };
+      } else if (team.adminStatus === 'pending_review') {
+        ctaState = { type: 'under_review', teamId: team.id };
+      } else if (team.adminStatus === 'rejected') {
+        ctaState = { type: 'team_rejected' };
+      } else {
+        ctaState = { type: 'my_team', teamId: team.id, teamUrl: `/hackathons/${slug}/teams/${team.id}` };
+      }
+    }
+  }
+
   return (
     <>
       <LandingNav sections={sections} />
@@ -164,6 +211,9 @@ export default async function HackathonLandingPage({ params }: PageProps) {
           registrationStart={registrationPhase?.startDate ?? null}
           registrationEnd={registrationPhase?.endDate ?? null}
           pageUrl={pageUrl}
+          ctaState={ctaState}
+          hackathonSlug={slug}
+          registrationFields={registrationFields}
         />
 
         {hackathon.description && (

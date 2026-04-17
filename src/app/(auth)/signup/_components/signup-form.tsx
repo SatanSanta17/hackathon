@@ -9,7 +9,11 @@ import { Button } from '@/components/ui/button';
 import { FormField, FormPasswordField, FormMessage } from '@/components/ui/form';
 import { signUpSchema, type SignUpInput } from '@/lib/validations/auth';
 
-export function SignUpForm() {
+interface SignUpFormProps {
+  onSuccess?: () => void;
+}
+
+export function SignUpForm({ onSuccess }: SignUpFormProps = {}) {
   const router = useRouter();
   const [serverError, setServerError] = useState<string | null>(null);
 
@@ -37,7 +41,11 @@ export function SignUpForm() {
       });
 
       if (res.status === 201) {
-        router.push('/check-email');
+        if (onSuccess) {
+          onSuccess();
+        } else {
+          router.push('/check-email');
+        }
         return;
       }
 
