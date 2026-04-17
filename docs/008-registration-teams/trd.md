@@ -3456,4 +3456,1121 @@ Backend-first. No UI. All data layer additions before any components.
 
 ---
 
-*Parts 3–4 will be written after Parts 1–2 are implemented and verified.*
+## Part 3: Team Formation
+
+**PRD Requirements Covered:** P3.R1 through P3.R20
+
+---
+
+### 3.1 Dependencies (New for Part 3)
+
+Add one shadcn/ui component:
+
+```bash
+npx shadcn@latest add alert
+```
+
+- **alert** — used in team profile to surface admin status messages (under review / rejected)
+
+No new npm packages required. All service functions were built in Part 1.
+
+---
+
+### 3.2 New Service Methods
+
+Add three methods to `src/lib/services/team-service.ts`.
+
+---
+
+**`getTeamWithMembers`** — single-query team fetch for the profile page:
+
+```typescript
+export interface TeamMemberDetail {
+  userId: string;
+  name: string;
+  avatarUrl: string | null;
+  role: string; // 'lead' | 'member'
+  joinedAt: Date;
+}
+
+export interface TeamWithMembers {
+  id: string;
+  hackathonId: string;
+  name: string;
+  description: string | null;
+  inviteCode: string;
+  isOpen: boolean;
+  trackId: string | null;
+  trackName: string | null;
+  adminStatus: string;
+  reviewReason: string | null;
+  createdBy: string;
+  memberCount: number;
+  members: TeamMemberDetail[];
+}
+
+export async function getTeamWithMembers(teamId: string): Promise<TeamWithMembers | null> {
+  const [row] = await db
+    .select({ team: teams, trackName: tracks.name })
+    .from(teams)
+    .leftJoin(tracks, eq(tracks.id, teams.trackId))
+    .where(and(eq(teams.id, teamId), isNull(teams.deletedAt)))
+    .limit(1);
+
+  if (!row) return null;
+
+  const members = await db
+    .select({
+      userId: teamMembers.userId,
+      name: users.name,
+      avatarUrl: users.avatarUrl,
+      role: teamMembers.role,
+      joinedAt: teamMembers.joinedAt,
+    })
+    .from(teamMembers)
+    .innerJoin(users, eq(users.id, teamMembers.userId))
+    .where(eq(teamMembers.teamId, teamId))
+    .orderBy(asc(teamMembers.joinedAt));
+
+  return {
+    id: row.team.id,
+    hackathonId: row.team.hackathonId,
+    name: row.team.name,
+    description: row.team.description,
+    inviteCode: row.team.inviteCode,
+    isOpen: row.team.isOpen,
+    trackId: row.team.trackId,
+    trackName: row.trackName ?? null,
+    adminStatus: row.team.adminStatus,
+    reviewReason: row.team.reviewReason,
+    createdBy: row.team.createdBy,
+    memberCount: members.length,
+    members,
+  };
+}
+```
+
+---
+
+**`getJoinRequestsForTeam`** — pending requests with user details for the lead view:
+
+```typescript
+export interface JoinRequestWithUser {
+  id: string;
+  userId: string;
+  userName: string;
+  userAvatarUrl: string | null;
+  message: string | null;
+  entryPoint: string;
+  requestedAt: Date;
+}
+
+export async function getJoinRequestsForTeam(teamId: string): Promise<JoinRequestWithUser[]> {
+  return db
+    .select({
+      id: teamJoinRequests.id,
+      userId: teamJoinRequests.userId,
+      userName: users.name,
+      userAvatarUrl: users.avatarUrl,
+      message: teamJoinRequests.message,
+      entryPoint: teamJoinRequests.entryPoint,
+      requestedAt: teamJoinRequests.requestedAt,
+    })
+    .from(teamJoinRequests)
+    .innerJoin(users, eq(users.id, teamJoinRequests.userId))
+    .where(
+      and(
+        eq(teamJoinRequests.teamId, teamId),
+        eq(teamJoinRequests.status, 'pending'),
+      ),
+    )
+    .orderBy(asc(teamJoinRequests.requestedAt));
+}
+```
+
+---
+
+**`getTeamInviteByToken`** — read-only lookup for the invite acceptance page (does not consume the token):
+
+```typescript
+export async function getTeamInviteByToken(token: string): Promise<{
+  id: string;
+  email: string;
+  expiresAt: Date;
+  acceptedAt: Date | null;
+  teamName: string;
+  hackathonTitle: string;
+  hackathonSlug: string;
+} | null> {
+  const [row] = await db
+    .select({
+      id: teamInvites.id,
+      email: teamInvites.email,
+      expiresAt: teamInvites.expiresAt,
+      acceptedAt: teamInvites.acceptedAt,
+      teamName: teams.name,
+      hackathonTitle: hackathons.title,
+      hackathonSlug: hackathons.slug,
+    })
+    .from(teamInvites)
+    .innerJoin(teams, eq(teams.id, teamInvites.teamId))
+    .innerJoin(hackathons, eq(hackathons.id, teams.hackathonId))
+    .where(eq(teamInvites.token, token))
+    .limit(1);
+
+  return row ?? null;
+}
+```
+
+---
+
+### 3.3 API Routes
+
+16 new routes. Pattern: participant routes use `requireVerifiedUser`. Lead-only routes additionally verify the viewer's `team_members.role = 'lead'`. Public routes (team browse, invite-code lookup) need no auth.
+
+---
+
+#### `POST /api/hackathons/[hackathonId]/teams`
+
+Create a new team.
+
+| | |
+|---|---|
+| **Auth** | `requireVerifiedUser` |
+| **Body** | `createTeamSchema`: `{ name, description?, trackId?, isOpen? }` |
+| **Success** | `201 { team: { id, name, hackathonId, adminStatus, inviteCode } }` |
+| **Errors** | 400 validation · 403 not registered or already on a team · 404 hackathon not found |
+
+Implementation:
+- Call `getRegistrationByUserAndHackathon` — if null → 403 "You must register before creating a team."
+- Call `getUserTeamForHackathon` — if found → 403 "You are already on a team for this hackathon."
+- Parse body with `createTeamSchema`.
+- Call `createTeam(hackathonId, user.id, data)` — service sets `adminStatus` per `requiresApproval`.
+- Return 201.
+
+---
+
+#### `GET /api/hackathons/[hackathonId]/teams`
+
+List open, non-full, approved teams for public browse.
+
+| | |
+|---|---|
+| **Auth** | None |
+| **Query** | `?trackId=[id]` optional |
+| **Success** | `200 { teams: TeamBrowseItem[] }` |
+
+Implementation:
+- Call `getTeamsByHackathon(hackathonId, { isOpen: true, adminStatus: 'approved' })`.
+- If `trackId` query param present, pass in filters.
+- Fetch hackathon `teamMaxSize`; filter out full teams (`memberCount >= teamMaxSize`).
+- Return teams array (each item already includes `memberCount` and `maxSize` from service).
+
+---
+
+#### `GET /api/hackathons/[hackathonId]/teams/[teamId]`
+
+Fetch team details for the profile page.
+
+| | |
+|---|---|
+| **Auth** | `requireVerifiedUser` |
+| **Success** | `200 { team: TeamWithMembers, hackathon: { title, slug, requiresApproval, teamMaxSize } }` |
+| **Errors** | 401 not authed · 404 not found or soft-deleted |
+
+Implementation:
+- Call `getTeamWithMembers(teamId)` — null → 404.
+- Fetch hackathon for context fields.
+- Strip `inviteCode` from response if `user.id` not in `team.members`.
+
+---
+
+#### `PATCH /api/hackathons/[hackathonId]/teams/[teamId]`
+
+Update team profile. Lead only.
+
+| | |
+|---|---|
+| **Auth** | `requireVerifiedUser` + viewer is lead |
+| **Body** | `updateTeamSchema`: `{ name?, description?, trackId?, isOpen? }` |
+| **Success** | `200 { team }` |
+| **Errors** | 400 validation · 403 not lead · 404 not found |
+
+Implementation:
+- Fetch team members, verify `user.id` has `role = 'lead'` → else 403.
+- Call `updateTeam(teamId, data)` — service handles re-approval if `requiresApproval`.
+
+---
+
+#### `POST /api/hackathons/[hackathonId]/teams/[teamId]/join-request`
+
+Send a join request.
+
+| | |
+|---|---|
+| **Auth** | `requireVerifiedUser` |
+| **Body** | `joinRequestSchema`: `{ message?, entryPoint: 'browse' \| 'link' \| 'participant_browse' }` |
+| **Success** | `201 { request: { id, status } }` |
+| **Errors** | 400 team closed or full · 403 already on a team · 409 pending request already exists |
+
+Implementation:
+- Fetch team; check `isOpen` → 400 if closed. Check `memberCount` vs hackathon `teamMaxSize` → 400 if full.
+- Check for existing pending request from `user.id` on this team → 409.
+- Call `createJoinRequest(teamId, user.id, message ?? null, entryPoint)`.
+
+---
+
+#### `GET /api/hackathons/[hackathonId]/teams/[teamId]/join-requests`
+
+List pending join requests. Lead only.
+
+| | |
+|---|---|
+| **Auth** | `requireVerifiedUser` + viewer is lead |
+| **Success** | `200 { requests: JoinRequestWithUser[] }` |
+
+Implementation:
+- Verify lead role.
+- Call `getJoinRequestsForTeam(teamId)`.
+
+---
+
+#### `PATCH /api/hackathons/[hackathonId]/teams/[teamId]/join-requests/[requestId]`
+
+Approve or reject a join request. Lead only.
+
+| | |
+|---|---|
+| **Auth** | `requireVerifiedUser` + viewer is lead |
+| **Body** | `respondToJoinRequestSchema`: `{ status: 'accepted' \| 'rejected' }` |
+| **Success** | `200 { request }` |
+| **Errors** | 400 team full on accept · 403 not lead · 404 request not found or not pending |
+
+Implementation:
+- Verify lead role.
+- Fetch hackathon `teamMaxSize`.
+- Call `respondToJoinRequest(requestId, status, teamMaxSize)` — service runs `addMember`, `autoRegister`, re-approval trigger, auto-reject of remaining requests if now full.
+
+---
+
+#### `POST /api/hackathons/[hackathonId]/teams/[teamId]/invite`
+
+Invite a user by email. Lead only.
+
+| | |
+|---|---|
+| **Auth** | `requireVerifiedUser` + viewer is lead |
+| **Body** | `inviteByEmailSchema`: `{ email }` |
+| **Success** | `200 { message: 'Invite sent' }` |
+| **Errors** | 400 team full · 403 not lead |
+
+Implementation:
+- Verify lead role. Check team size.
+- Call `inviteMemberByEmail(teamId, user.id, email)` — service handles existing vs new user paths.
+
+---
+
+#### `POST /api/hackathons/[hackathonId]/teams/[teamId]/leave`
+
+Leave a team.
+
+| | |
+|---|---|
+| **Auth** | `requireVerifiedUser` |
+| **Body** | `{}` (empty) |
+| **Success** | `200 { message: 'Left team' }` |
+| **Errors** | 403 not a member · 404 team not found |
+
+Implementation:
+- Verify `user.id` is in `team_members` for this team → else 403.
+- Call `removeMember(teamId, user.id)` — service handles auto-transfer and dissolve-if-last.
+
+---
+
+#### `POST /api/hackathons/[hackathonId]/teams/[teamId]/transfer-lead`
+
+Transfer leadership to another member. Lead only.
+
+| | |
+|---|---|
+| **Auth** | `requireVerifiedUser` + viewer is lead |
+| **Body** | `transferLeadSchema`: `{ toUserId }` |
+| **Success** | `200 { message: 'Leadership transferred' }` |
+| **Errors** | 400 `toUserId` not a member · 403 not lead |
+
+Implementation:
+- Verify lead role. Verify `toUserId` is a member of the team.
+- Call `transferLeadership(teamId, user.id, toUserId)`.
+
+---
+
+#### `GET /api/teams/by-invite-code/[inviteCode]`
+
+Look up a team by its invite code. Public — used by the join link page to show team info before auth.
+
+| | |
+|---|---|
+| **Auth** | None |
+| **Success** | `200 { team: { id, name, hackathonId, hackathonSlug, hackathonTitle, isOpen, memberCount, teamMaxSize } }` |
+| **Errors** | 404 not found or soft-deleted |
+
+Implementation:
+- Call `getTeamByInviteCode(inviteCode)` → null → 404.
+- Fetch hackathon `{ id, slug, title, teamMaxSize }`.
+- Return merged object. Do NOT include `inviteCode` in the response.
+
+---
+
+#### `POST /api/team-invites/accept`
+
+Accept a team invite by token.
+
+| | |
+|---|---|
+| **Auth** | `requireVerifiedUser` |
+| **Body** | `{ token: string }` |
+| **Success** | `200 { teamId, hackathonSlug }` |
+| **Errors** | 400 already accepted · 403 already on a team in this hackathon · 404 token not found · 410 expired |
+
+Implementation:
+- Call `acceptTeamInvite(token)` — service handles expiry check, already-accepted, `addMember`, `autoRegister`.
+- On success, fetch hackathon slug from the returned team for client-side redirect.
+- Map named service errors to HTTP codes: `TOKEN_NOT_FOUND` → 404, `TOKEN_EXPIRED` → 410, `ALREADY_ACCEPTED` → 400, `ALREADY_IN_TEAM` → 403.
+
+---
+
+#### `GET /api/hackathons/[hackathonId]/participants`
+
+List discoverable, unteamed, registered participants.
+
+| | |
+|---|---|
+| **Auth** | `requireVerifiedUser` |
+| **Query** | `?search=[name]` optional, case-insensitive |
+| **Success** | `200 { participants: DiscoverableParticipant[] }` |
+
+Implementation:
+- Call `getDiscoverableParticipants(hackathonId)`.
+- If `search` param provided, filter in JS: `p.user.name.toLowerCase().includes(search.toLowerCase())`.
+- Exclude the requesting user from results (`p.userId !== user.id`).
+
+---
+
+#### `POST /api/hackathons/[hackathonId]/team-up`
+
+Create a team-up request.
+
+| | |
+|---|---|
+| **Auth** | `requireVerifiedUser` |
+| **Body** | `createTeamUpRequestSchema`: `{ toUserId, proposedTeamName, message? }` |
+| **Success** | `201 { request }` |
+| **Errors** | 400 recipient not registered/unteamed/discoverable · 403 requester not registered or on a team · 409 pending request already exists |
+
+Implementation:
+- Call `createTeamUpRequest(hackathonId, user.id, toUserId, proposedTeamName, message)`.
+- Map named service errors to HTTP status codes.
+
+---
+
+#### `GET /api/hackathons/[hackathonId]/team-up-requests`
+
+Get incoming pending team-up requests for the current user.
+
+| | |
+|---|---|
+| **Auth** | `requireVerifiedUser` |
+| **Success** | `200 { requests: TeamUpRequestWithUser[] }` |
+
+Implementation:
+- Call `getTeamUpRequestsForUser(user.id, hackathonId)` — returns pending incoming requests with `fromUser` details.
+
+---
+
+#### `PATCH /api/hackathons/[hackathonId]/team-up-requests/[requestId]`
+
+Accept or decline a team-up request. Recipient only.
+
+| | |
+|---|---|
+| **Auth** | `requireVerifiedUser` + viewer is `toUserId` |
+| **Body** | `respondToTeamUpRequestSchema`: `{ status: 'accepted' \| 'rejected' }` |
+| **Success** | `200 { request }` |
+| **Errors** | 400 either user now on a team (re-validation at accept time) · 403 not the recipient · 404 not found or not pending |
+
+Implementation:
+- Fetch request; verify `request.toUserId === user.id` → else 403.
+- Call `respondToTeamUpRequest(requestId, status)` — on accept: creates team with requester as lead, adds recipient as member.
+- On accept success, return team ID in response for client-side redirect.
+
+---
+
+### 3.4 Team Browse Page + Create Team Flow
+
+#### New file: `src/app/(public)/hackathons/[slug]/teams/page.tsx`
+
+Server component. Publicly accessible.
+
+```typescript
+export default async function TeamBrowsePage({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}) {
+  const { slug } = await params;
+  const data = await getHackathonBySlug(slug);
+  if (!data || !['published', 'active'].includes(data.hackathon.status)) notFound();
+
+  const { hackathon, tracks } = data;
+  const session = await auth();
+
+  let registration = null;
+  let userTeam = null;
+  if (session?.user?.id) {
+    registration = await getRegistrationByUserAndHackathon(session.user.id, hackathon.id);
+    if (registration) userTeam = await getUserTeamForHackathon(session.user.id, hackathon.id);
+  }
+
+  return (
+    <div className="mx-auto max-w-5xl space-y-6 px-4 py-10 sm:px-6 lg:px-8">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="font-heading text-3xl font-bold">Teams</h1>
+          <p className="mt-1 text-sm text-muted-foreground">{hackathon.title}</p>
+        </div>
+        {registration && !userTeam && (
+          <CreateTeamButton hackathonId={hackathon.id} hackathonSlug={slug} tracks={tracks} />
+        )}
+      </div>
+      <TeamBrowseClient
+        hackathonId={hackathon.id}
+        hackathonSlug={slug}
+        tracks={tracks}
+        isAuthenticated={!!session?.user?.id}
+        isRegistered={!!registration}
+        hasTeam={!!userTeam}
+      />
+    </div>
+  );
+}
+```
+
+`CreateTeamButton` is a client component that holds modal open state and renders `<CreateTeamModal>`.
+
+---
+
+#### New file: `src/app/(public)/hackathons/[slug]/teams/_components/team-browse-client.tsx`
+
+Client component.
+
+```typescript
+interface TeamBrowseClientProps {
+  hackathonId: string;
+  hackathonSlug: string;
+  tracks: { id: string; name: string }[];
+  isAuthenticated: boolean;
+  isRegistered: boolean;
+  hasTeam: boolean;
+}
+```
+
+Behavior:
+- On mount: fetch `GET /api/hackathons/[hackathonId]/teams` → render `TeamBrowseCard` grid.
+- Track pill selector: refetch with `?trackId=[id]`. "All Tracks" clears filter.
+- Loading: card skeleton grid (3 columns).
+- Empty state: "No open teams yet."
+
+---
+
+#### New file: `src/app/(public)/hackathons/[slug]/teams/_components/team-browse-card.tsx`
+
+Client component.
+
+```typescript
+interface TeamBrowseCardProps {
+  team: TeamBrowseItem;
+  hackathonSlug: string;
+  hackathonId: string;
+  isAuthenticated: boolean;
+  isRegistered: boolean;
+  hasTeam: boolean;
+}
+```
+
+Card layout:
+- Team name (link to `/hackathons/[slug]/teams/[teamId]`), description snippet (2-line truncate)
+- Track badge + Open badge
+- Member count: "X / Y members"
+- CTA button (one of):
+  - Not authenticated → "Sign in to Join" → `/login?callbackUrl=/hackathons/[slug]/teams`
+  - Authenticated + not registered → "Register to Join" → `/hackathons/[slug]`
+  - Registered + no team + team open + not full → "Request to Join" → opens `JoinRequestDialog`
+  - Registered + has team → "Already on a Team" (disabled)
+  - Full (`memberCount >= maxSize`) → "Team Full" (disabled)
+  - Closed (`isOpen = false`) → "Team Closed" (disabled)
+
+---
+
+#### New file: `src/app/(public)/hackathons/[slug]/teams/_components/create-team-modal.tsx`
+
+Client component. Dialog for creating a team.
+
+```typescript
+interface CreateTeamModalProps {
+  hackathonId: string;
+  hackathonSlug: string;
+  tracks: { id: string; name: string }[];
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}
+```
+
+Form (via `createTeamSchema`):
+- Team Name — required text input
+- Description — optional textarea
+- Track — Select with "No track" default + hackathon tracks
+- Open to new members — Switch, default ON
+
+On submit: `POST /api/hackathons/[hackathonId]/teams` → on success: `router.push('/hackathons/[slug]/teams/[newTeamId]')`.
+
+---
+
+#### New file: `src/app/(public)/hackathons/[slug]/teams/_components/join-request-dialog.tsx`
+
+Client component. Submits a join request.
+
+```typescript
+interface JoinRequestDialogProps {
+  teamId: string;
+  teamName: string;
+  hackathonId: string;
+  entryPoint: 'browse' | 'link';
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSuccess: () => void;
+}
+```
+
+Form: optional message textarea.
+
+On submit: `POST /api/hackathons/[hackathonId]/teams/[teamId]/join-request`.
+
+Success: "Request sent! The team lead will review your request." toast + close. Parent hides the CTA.
+
+---
+
+### 3.5 Team Profile Page
+
+#### New file: `src/app/(public)/hackathons/[slug]/teams/[teamId]/page.tsx`
+
+Server component. Requires authentication — redirect to login if session missing.
+
+```typescript
+export default async function TeamProfilePage({
+  params,
+}: {
+  params: Promise<{ slug: string; teamId: string }>;
+}) {
+  const { slug, teamId } = await params;
+
+  const session = await auth();
+  if (!session?.user?.id) {
+    redirect(`/login?callbackUrl=/hackathons/${slug}/teams/${teamId}`);
+  }
+
+  const userId = session.user.id;
+  const [teamData, hackathonData] = await Promise.all([
+    getTeamWithMembers(teamId),
+    getHackathonBySlug(slug),
+  ]);
+
+  if (!teamData || !hackathonData) notFound();
+  const { hackathon } = hackathonData;
+
+  const viewerMember = teamData.members.find((m) => m.userId === userId);
+  const viewerRole = viewerMember?.role ?? null; // 'lead' | 'member' | null
+
+  const [registration, userTeam] = await Promise.all([
+    getRegistrationByUserAndHackathon(userId, hackathon.id),
+    getUserTeamForHackathon(userId, hackathon.id),
+  ]);
+
+  const isOnDifferentTeam = !viewerMember && userTeam !== null;
+
+  let joinRequests: JoinRequestWithUser[] = [];
+  if (viewerRole === 'lead') {
+    joinRequests = await getJoinRequestsForTeam(teamId);
+  }
+
+  return (
+    <TeamProfileClient
+      team={teamData}
+      hackathon={{
+        id: hackathon.id,
+        slug,
+        title: hackathon.title,
+        requiresApproval: hackathon.requiresApproval,
+        teamMaxSize: hackathon.teamMaxSize,
+      }}
+      viewerUserId={userId}
+      viewerRole={viewerRole}
+      isRegistered={!!registration}
+      isOnDifferentTeam={isOnDifferentTeam}
+      initialJoinRequests={joinRequests}
+    />
+  );
+}
+```
+
+---
+
+#### New file: `src/app/(public)/hackathons/[slug]/teams/[teamId]/_components/team-profile-client.tsx`
+
+Client component. Contains all interactive sections.
+
+```typescript
+interface TeamProfileClientProps {
+  team: TeamWithMembers;
+  hackathon: { id: string; slug: string; title: string; requiresApproval: boolean; teamMaxSize: number };
+  viewerUserId: string;
+  viewerRole: 'lead' | 'member' | null;
+  isRegistered: boolean;
+  isOnDifferentTeam: boolean;
+  initialJoinRequests: JoinRequestWithUser[];
+}
+```
+
+Rendered sections (in order):
+
+**Header:**
+- Team name (font-heading, 3xl), link back to `/hackathons/[slug]/teams`
+- Track badge, Open/Closed badge, "X/Y members" badge
+- Admin status badge — only when `hackathon.requiresApproval`: amber "Under Review" / green "Approved" / red "Not Approved"
+
+**Status alert** (when `hackathon.requiresApproval`):
+- `pending_review` → amber Alert: "Your team is under review. You'll be notified once approved."
+- `rejected` → destructive Alert: "Your team was not approved. Contact the organiser."
+
+**Description:** `team.description` text (if set).
+
+**Members list:**
+Each row: initials avatar, name, role badge ("Lead" / "Member"), joined date.
+Lead row: "Transfer Lead" button (lead only) → opens `TransferLeadDialog`.
+
+**Actions bar:**
+- Lead: "Edit Team" → `EditTeamDialog` | "Invite by Email" → `InviteByEmailDialog` | "Browse Participants" link
+- Member: "Leave Team" → confirm dialog → `POST .../leave` → `router.push('/hackathons/[slug]')`
+- Non-member + registered + not on a team + team open + not full: "Request to Join" → `JoinRequestDialog` with `entryPoint='browse'`
+- Non-member + registered + on a different team: "Already on a Team" (disabled)
+- Non-member + not registered: "Register to Join" → `/hackathons/[slug]`
+- Non-member + team full: "Team Full" (disabled)
+- Non-member + team closed: "Team Closed" (disabled)
+
+**Join link** (team members only — `viewerRole !== null`):
+- Copyable input: `[NEXT_PUBLIC_APP_URL]/hackathons/[slug]/teams/join?code=[inviteCode]`
+- Copy button with clipboard feedback
+
+**Join Requests** (lead only):
+- Section rendered when `viewerRole === 'lead'`
+- Uses `initialJoinRequests`; refreshed after approve/reject via local state update
+- Each row: avatar, name, optional message, entry point label ("Browsed" / "Via Link" / "Via Participants"), Approve + Reject buttons
+- Approve: `PATCH .../join-requests/[requestId]` `{ status: 'accepted' }` → remove from list, trigger member list refresh
+- Reject: `PATCH .../join-requests/[requestId]` `{ status: 'rejected' }` → remove from list
+
+**Incoming Team-Up Requests** (`viewerRole === null && isRegistered && !isOnDifferentTeam`):
+- Fetched on mount from `GET /api/hackathons/[hackathonId]/team-up-requests`
+- Each row: requester name, proposed team name, message, Accept + Decline
+- Accept: `PATCH .../team-up-requests/[requestId]` `{ status: 'accepted' }` → redirect to new team page
+- Decline: `PATCH .../team-up-requests/[requestId]` `{ status: 'rejected' }` → remove from list
+
+---
+
+#### New file: `src/app/(public)/hackathons/[slug]/teams/[teamId]/_components/edit-team-dialog.tsx`
+
+Client component. Lead only.
+
+Form: Name, Description (textarea), Track (Select), Open to Join (Switch).
+
+On submit: `PATCH /api/hackathons/[hackathonId]/teams/[teamId]` → `router.refresh()` + close.
+
+If `hackathon.requiresApproval` and save succeeds, show toast: "Your changes have been submitted for review."
+
+---
+
+#### New file: `src/app/(public)/hackathons/[slug]/teams/[teamId]/_components/invite-by-email-dialog.tsx`
+
+Client component. Lead only.
+
+Form: email input.
+
+On submit: `POST /api/hackathons/[hackathonId]/teams/[teamId]/invite` → "Invite sent!" toast + close.
+
+---
+
+#### New file: `src/app/(public)/hackathons/[slug]/teams/[teamId]/_components/transfer-lead-dialog.tsx`
+
+Client component. Lead only.
+
+Form: Select from members list (excluding current lead).
+
+On confirm: `POST /api/hackathons/[hackathonId]/teams/[teamId]/transfer-lead` `{ toUserId }` → `router.refresh()` + close.
+
+---
+
+### 3.6 Join Link Page
+
+#### New file: `src/app/(public)/hackathons/[slug]/teams/join/page.tsx`
+
+Server component. Handles `/hackathons/[slug]/teams/join?code=[inviteCode]`.
+
+```typescript
+export default async function JoinLinkPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<{ code?: string }>;
+}) {
+  const { slug } = await params;
+  const { code } = await searchParams;
+  if (!code) notFound();
+
+  const teamData = await getTeamByInviteCode(code);
+  if (!teamData) notFound();
+
+  const hackathonData = await getHackathonBySlug(slug);
+  if (!hackathonData) notFound();
+
+  const session = await auth();
+
+  return (
+    <JoinLinkClient
+      code={code}
+      team={{ id: teamData.id, name: teamData.name, hackathonId: teamData.hackathonId,
+              memberCount: teamData.memberCount, maxSize: hackathonData.hackathon.teamMaxSize,
+              isOpen: teamData.isOpen }}
+      hackathonSlug={slug}
+      hackathonTitle={hackathonData.hackathon.title}
+      isAuthenticated={!!session?.user?.id}
+    />
+  );
+}
+```
+
+---
+
+#### New file: `src/app/(public)/hackathons/[slug]/teams/join/_components/join-link-client.tsx`
+
+Client component.
+
+```typescript
+interface JoinLinkClientProps {
+  code: string;
+  team: { id: string; name: string; hackathonId: string; memberCount: number; maxSize: number; isOpen: boolean };
+  hackathonSlug: string;
+  hackathonTitle: string;
+  isAuthenticated: boolean;
+}
+```
+
+Layout: centered card with team name + hackathon context.
+
+States:
+- `!team.isOpen` → "This team is no longer accepting members." No CTA.
+- `team.memberCount >= team.maxSize` → "This team is full." No CTA.
+- `isAuthenticated` → "Request to Join" button → `POST /api/hackathons/[hackathonId]/teams/[teamId]/join-request` with `{ entryPoint: 'link' }` → success: "Request sent! The team lead will review your request."
+- Not authenticated → "Sign in to request to join" + login button (`/login?callbackUrl=/hackathons/[slug]/teams/join?code=[code]`)
+
+---
+
+### 3.7 Participants Browse Page
+
+#### New file: `src/app/(public)/hackathons/[slug]/participants/page.tsx`
+
+Server component. Requires authentication.
+
+```typescript
+export default async function ParticipantsBrowsePage({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}) {
+  const { slug } = await params;
+  const session = await auth();
+  if (!session?.user?.id) {
+    redirect(`/login?callbackUrl=/hackathons/${slug}/participants`);
+  }
+
+  const data = await getHackathonBySlug(slug);
+  if (!data) notFound();
+  const { hackathon } = data;
+
+  const userId = session.user.id;
+  const [registration, userTeam] = await Promise.all([
+    getRegistrationByUserAndHackathon(userId, hackathon.id),
+    getUserTeamForHackathon(userId, hackathon.id),
+  ]);
+
+  // Determine viewer's role within their team (for "Invite to Team" CTA)
+  let viewerRole: 'lead' | 'member' | null = null;
+  if (userTeam) {
+    const members = await db
+      .select({ role: teamMembers.role })
+      .from(teamMembers)
+      .where(and(eq(teamMembers.teamId, userTeam.id), eq(teamMembers.userId, userId)))
+      .limit(1);
+    viewerRole = (members[0]?.role as 'lead' | 'member') ?? null;
+  }
+
+  return (
+    <ParticipantsBrowseClient
+      hackathonId={hackathon.id}
+      hackathonSlug={slug}
+      hackathonTitle={hackathon.title}
+      viewerUserId={userId}
+      isRegistered={!!registration}
+      hasTeam={!!userTeam}
+      viewerRole={viewerRole}
+      viewerTeamId={userTeam?.id ?? null}
+    />
+  );
+}
+```
+
+**Design note:** the direct `db` query for viewer's role is intentional — `getUserTeamForHackathon` returns team-level data but not the member's role. Inlining one extra query here is simpler than adding a new service method for V1.
+
+---
+
+#### New file: `src/app/(public)/hackathons/[slug]/participants/_components/participants-browse-client.tsx`
+
+Client component.
+
+```typescript
+interface ParticipantsBrowseClientProps {
+  hackathonId: string;
+  hackathonSlug: string;
+  hackathonTitle: string;
+  viewerUserId: string;
+  isRegistered: boolean;
+  hasTeam: boolean;
+  viewerRole: 'lead' | 'member' | null;
+  viewerTeamId: string | null;
+}
+```
+
+Behavior:
+- On mount: `GET /api/hackathons/[hackathonId]/participants` → render participant cards.
+- Search input: client-side filter on `participant.user.name`.
+- Participants filtered to exclude `viewerUserId` (server already does this, but double-check client-side).
+- Empty state: "No participants available to team up with right now."
+- Loading: card skeleton grid.
+
+---
+
+#### New file: `src/app/(public)/hackathons/[slug]/participants/_components/participant-card.tsx`
+
+Client component.
+
+```typescript
+interface ParticipantCardProps {
+  participant: DiscoverableParticipant;
+  hackathonId: string;
+  hackathonSlug: string;
+  viewerIsRegisteredUnteamed: boolean;  // isRegistered && !hasTeam
+  viewerIsLead: boolean;               // viewerRole === 'lead'
+  viewerTeamId: string | null;
+}
+```
+
+Card layout:
+- Initials avatar, name, designation + department (from `formData`, if set), registered date.
+- Actions (one of):
+  - `viewerIsRegisteredUnteamed` → "Team Up" button → opens `TeamUpDialog`
+  - `viewerIsLead` → "Invite to Team" button → `POST /api/hackathons/[hackathonId]/teams/[viewerTeamId]/invite` with `{ email: participant.user.email }` → "Invited!" success state
+  - Otherwise: no action button (view only)
+
+---
+
+#### New file: `src/app/(public)/hackathons/[slug]/participants/_components/team-up-dialog.tsx`
+
+Client component.
+
+```typescript
+interface TeamUpDialogProps {
+  toUserId: string;
+  toUserName: string;
+  hackathonId: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSuccess: () => void;
+}
+```
+
+Form:
+- Proposed Team Name (required, default "My Team")
+- Optional message (textarea)
+
+On submit: `POST /api/hackathons/[hackathonId]/team-up` with `{ toUserId, proposedTeamName, message }`.
+
+Success: "{toUserName} has been sent a Team Up request!" toast + close. Parent marks card as "Requested".
+
+---
+
+### 3.8 Team Invite Acceptance Page
+
+#### New file: `src/app/(public)/team-invites/accept/page.tsx`
+
+Server component. Works with or without authentication.
+
+```typescript
+export default async function TeamInviteAcceptPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ token?: string }>;
+}) {
+  const { token } = await searchParams;
+  if (!token) notFound();
+
+  const invite = await getTeamInviteByToken(token);
+  if (!invite) return <InvalidInvitePage reason="not_found" />;
+  if (invite.expiresAt < new Date()) return <InvalidInvitePage reason="expired" />;
+  if (invite.acceptedAt) return <InvalidInvitePage reason="already_accepted" />;
+
+  const session = await auth();
+
+  return (
+    <TeamInviteAcceptClient
+      token={token}
+      teamName={invite.teamName}
+      hackathonTitle={invite.hackathonTitle}
+      hackathonSlug={invite.hackathonSlug}
+      isAuthenticated={!!session?.user?.id}
+    />
+  );
+}
+```
+
+`InvalidInvitePage` is an inline server component rendering appropriate messaging per reason code.
+
+---
+
+#### New file: `src/app/(public)/team-invites/accept/_components/team-invite-accept-client.tsx`
+
+Client component.
+
+```typescript
+interface TeamInviteAcceptClientProps {
+  token: string;
+  teamName: string;
+  hackathonTitle: string;
+  hackathonSlug: string;
+  isAuthenticated: boolean;
+}
+```
+
+If `isAuthenticated`:
+- Show "You've been invited to join [teamName] for [hackathonTitle]"
+- "Accept Invite" button → `POST /api/team-invites/accept` `{ token }` → on success: `router.push('/hackathons/[hackathonSlug]/teams/[teamId]')`
+
+If not authenticated:
+- Same header copy
+- "Sign In" → `/login?callbackUrl=/team-invites/accept?token=[token]`
+- "Create Account" → `/signup?callbackUrl=/team-invites/accept?token=[token]`
+- Explanatory note: "After verifying your email, return to this link to accept the invite."
+
+---
+
+### 3.9 Files Changed Summary
+
+| File | Action | Reason |
+|------|--------|--------|
+| `src/lib/services/team-service.ts` | Modified | Add `getTeamWithMembers`, `getJoinRequestsForTeam`, `getTeamInviteByToken` |
+| `src/app/api/hackathons/[hackathonId]/teams/route.ts` | Created | POST create team / GET browse (public) |
+| `src/app/api/hackathons/[hackathonId]/teams/[teamId]/route.ts` | Created | GET team details (auth) / PATCH update (lead) |
+| `src/app/api/hackathons/[hackathonId]/teams/[teamId]/join-request/route.ts` | Created | POST send join request |
+| `src/app/api/hackathons/[hackathonId]/teams/[teamId]/join-requests/route.ts` | Created | GET pending requests (lead) |
+| `src/app/api/hackathons/[hackathonId]/teams/[teamId]/join-requests/[requestId]/route.ts` | Created | PATCH approve/reject (lead) |
+| `src/app/api/hackathons/[hackathonId]/teams/[teamId]/invite/route.ts` | Created | POST invite by email (lead) |
+| `src/app/api/hackathons/[hackathonId]/teams/[teamId]/leave/route.ts` | Created | POST leave team |
+| `src/app/api/hackathons/[hackathonId]/teams/[teamId]/transfer-lead/route.ts` | Created | POST transfer leadership (lead) |
+| `src/app/api/teams/by-invite-code/[inviteCode]/route.ts` | Created | GET team by invite code (public) |
+| `src/app/api/team-invites/accept/route.ts` | Created | POST accept invite token |
+| `src/app/api/hackathons/[hackathonId]/participants/route.ts` | Created | GET discoverable participants (auth) |
+| `src/app/api/hackathons/[hackathonId]/team-up/route.ts` | Created | POST create team-up request |
+| `src/app/api/hackathons/[hackathonId]/team-up-requests/route.ts` | Created | GET incoming team-up requests |
+| `src/app/api/hackathons/[hackathonId]/team-up-requests/[requestId]/route.ts` | Created | PATCH accept/reject team-up |
+| `src/app/(public)/hackathons/[slug]/teams/page.tsx` | Created | Public team browse page |
+| `src/app/(public)/hackathons/[slug]/teams/loading.tsx` | Created | Card skeleton |
+| `src/app/(public)/hackathons/[slug]/teams/_components/team-browse-client.tsx` | Created | Fetches teams + track filter (client) |
+| `src/app/(public)/hackathons/[slug]/teams/_components/team-browse-card.tsx` | Created | Team card with role-aware join CTA |
+| `src/app/(public)/hackathons/[slug]/teams/_components/create-team-modal.tsx` | Created | Create team dialog |
+| `src/app/(public)/hackathons/[slug]/teams/_components/join-request-dialog.tsx` | Created | Join request form dialog |
+| `src/app/(public)/hackathons/[slug]/teams/[teamId]/page.tsx` | Created | Team profile page (auth required) |
+| `src/app/(public)/hackathons/[slug]/teams/[teamId]/loading.tsx` | Created | Profile skeleton |
+| `src/app/(public)/hackathons/[slug]/teams/[teamId]/_components/team-profile-client.tsx` | Created | All profile sections + role-based actions |
+| `src/app/(public)/hackathons/[slug]/teams/[teamId]/_components/edit-team-dialog.tsx` | Created | Edit team form (lead) |
+| `src/app/(public)/hackathons/[slug]/teams/[teamId]/_components/invite-by-email-dialog.tsx` | Created | Email invite dialog (lead) |
+| `src/app/(public)/hackathons/[slug]/teams/[teamId]/_components/transfer-lead-dialog.tsx` | Created | Leadership transfer dialog (lead) |
+| `src/app/(public)/hackathons/[slug]/teams/join/page.tsx` | Created | Join via invite link page |
+| `src/app/(public)/hackathons/[slug]/teams/join/_components/join-link-client.tsx` | Created | Join link client component |
+| `src/app/(public)/hackathons/[slug]/participants/page.tsx` | Created | Discoverable participants browse (auth) |
+| `src/app/(public)/hackathons/[slug]/participants/loading.tsx` | Created | Skeleton |
+| `src/app/(public)/hackathons/[slug]/participants/_components/participants-browse-client.tsx` | Created | Fetch + search participants (client) |
+| `src/app/(public)/hackathons/[slug]/participants/_components/participant-card.tsx` | Created | Participant card with team-up/invite CTA |
+| `src/app/(public)/hackathons/[slug]/participants/_components/team-up-dialog.tsx` | Created | Team-up request dialog |
+| `src/app/(public)/team-invites/accept/page.tsx` | Created | Team invite acceptance page |
+| `src/app/(public)/team-invites/accept/_components/team-invite-accept-client.tsx` | Created | Accept invite client component |
+
+---
+
+### 3.10 Implementation Increments
+
+**Increment 1: API Routes + Service Additions**
+
+1. Add `getTeamWithMembers`, `getJoinRequestsForTeam`, `getTeamInviteByToken` to `team-service.ts`
+2. Create all 15 API route files
+3. `npx tsc --noEmit`
+
+**Verify:** `POST /teams` returns 201 on valid input, 403 without registration, 403 if already on a team. `GET /teams` returns 200 without auth. `GET /participants` returns 401 without auth. `tsc` passes cleanly.
+
+---
+
+**Increment 2: Team Browse + Create Team**
+
+1. Create `/hackathons/[slug]/teams/page.tsx` + `loading.tsx`
+2. Create `team-browse-client.tsx`, `team-browse-card.tsx`
+3. Create `create-team-modal.tsx`, `join-request-dialog.tsx`
+4. `npx tsc --noEmit`
+
+**Verify:** Team browse page loads without login. Track filter changes the card grid without page reload. Unauthed user sees "Sign in to Join". Registered+unteamed user can open create team modal, submit, and is redirected to the new team page.
+
+---
+
+**Increment 3: Team Profile + Join Link**
+
+1. Create `/hackathons/[slug]/teams/[teamId]/page.tsx` + `loading.tsx`
+2. Create `team-profile-client.tsx`
+3. Create `edit-team-dialog.tsx`, `invite-by-email-dialog.tsx`, `transfer-lead-dialog.tsx`
+4. Create `/hackathons/[slug]/teams/join/page.tsx` + `join-link-client.tsx`
+5. `npx tsc --noEmit`
+
+**Verify:** Team profile redirects unauthenticated users to login. Lead sees Edit, Invite, Transfer Lead, and Join Requests sections. Member sees Leave button only. Non-member (registered, unteamed) sees "Request to Join" if team is open. Join link page shows team info; authenticated user can submit a join request; unauthenticated sees login CTA.
+
+---
+
+**Increment 4: Participants Browse + Team-Up + Invite Accept**
+
+1. Create `/hackathons/[slug]/participants/page.tsx` + `loading.tsx`
+2. Create `participants-browse-client.tsx`, `participant-card.tsx`, `team-up-dialog.tsx`
+3. Create `/team-invites/accept/page.tsx` + `team-invite-accept-client.tsx`
+4. `npx next build`
+
+**Verify:** Participants browse redirects unauthed users to login. Registered unteamed users see "Team Up" button; team leads see "Invite to Team". Team-up dialog submits and shows success toast. Invite accept page: authenticated user sees Accept button and is redirected to team page on success; unauthenticated user sees login/signup options with `callbackUrl` preserving the token.
+
+---
+
+*Part 3 complete when all 4 increments pass and `npx next build` has zero errors.*
+
+---
+
+*Part 4 will be written after Part 3 is implemented and verified.*
