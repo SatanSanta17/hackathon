@@ -131,6 +131,49 @@ export function orgInviteEmail(params: {
 }
 
 // ---------------------------------------------------------------------------
+// Phase 3 — Teams
+// ---------------------------------------------------------------------------
+
+export function teamDisbandedAdminEmail(params: {
+  adminName: string;
+  teamName: string;
+  hackathonTitle: string;
+  reason: string;
+}): EmailTemplate {
+  return {
+    subject: `[FYI] Team "${params.teamName}" has been disbanded`,
+    html: emailLayout(`
+      <h1 style="font-size: 24px; font-weight: 700; color: #111; margin: 0 0 16px;">
+        Team disbanded
+      </h1>
+      <p style="font-size: 16px; color: #333; line-height: 1.6; margin: 0 0 16px;">
+        Hi ${escapeHtml(params.adminName)},
+      </p>
+      <p style="font-size: 16px; color: #333; line-height: 1.6; margin: 0 0 16px;">
+        The team <strong>${escapeHtml(params.teamName)}</strong> in <strong>${escapeHtml(params.hackathonTitle)}</strong> has been disbanded.
+      </p>
+      <p style="font-size: 16px; color: #333; line-height: 1.6; margin: 0 0 16px;">
+        <strong>Reason:</strong> ${escapeHtml(params.reason)}
+      </p>
+      <p style="font-size: 14px; color: #666; line-height: 1.6; margin: 0;">
+        All former members retain their registrations and will reappear on the participants browse page.
+      </p>
+    `),
+    text: [
+      `Hi ${params.adminName},`,
+      '',
+      `The team "${params.teamName}" in ${params.hackathonTitle} has been disbanded.`,
+      '',
+      `Reason: ${params.reason}`,
+      '',
+      'All former members retain their registrations and will reappear on the participants browse page.',
+      '',
+      '— HackForge',
+    ].join('\n'),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
 
