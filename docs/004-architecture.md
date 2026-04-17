@@ -1,8 +1,8 @@
 # HackForge — Architecture
 
 **Document ID:** ARCH-004  
-**Date:** April 16, 2026  
-**Status:** Phase 2 Complete (All 4 Parts — Schema, Wizard, Dashboard, Landing Page)  
+**Date:** April 17, 2026  
+**Status:** Phase 3 Part 1 Complete (Schema + Data Layer)  
 **Update Frequency:** Every development phase
 
 ---
@@ -86,7 +86,10 @@ hackforge/                              # PROJECT ROOT
 │   ├── 006-foundation-auth/            # Phase 1 PRD + TRD
 │   │   ├── prd.md
 │   │   └── trd.md
-│   └── 007-hackathon-creation/         # Phase 2 PRD + TRD
+│   ├── 007-hackathon-creation/         # Phase 2 PRD + TRD
+│   │   ├── prd.md
+│   │   └── trd.md
+│   └── 008-registration-teams/         # Phase 3 PRD + TRD
 │       ├── prd.md
 │       └── trd.md
 ├── drizzle.config.ts                   # Drizzle Kit configuration
@@ -286,17 +289,24 @@ hackforge/                              # PROJECT ROOT
     │   ├── index.ts                    # Drizzle client instance (postgres.js driver)
     │   ├── schema/
     │   │   ├── index.ts                # Barrel export
-    │   │   ├── enums.ts                # All enums (Phase 1 + Phase 2)
+    │   │   ├── enums.ts                # All enums (Phase 1 + Phase 2 + Phase 3)
     │   │   ├── users.ts                # users table + User/NewUser types
     │   │   ├── organizations.ts        # organizations table + types
     │   │   ├── org-memberships.ts      # org_memberships table + types
     │   │   ├── org-invites.ts          # org_invites table + types
     │   │   ├── verification-tokens.ts  # verification_tokens table + types
-    │   │   ├── hackathons.ts           # hackathons table + Hackathon/NewHackathon types
-    │   │   ├── phases.ts              # phases table + Phase/NewPhase types
-    │   │   ├── tracks.ts             # tracks table + Track/NewTrack types
-    │   │   ├── prizes.ts             # prizes table + Prize/NewPrize types
-    │   │   └── hackathon-templates.ts # hackathon_templates table + types
+    │   │   ├── hackathons.ts           # hackathons table + types (incl. requires_approval)
+    │   │   ├── phases.ts               # phases table + Phase/NewPhase types
+    │   │   ├── tracks.ts               # tracks table + Track/NewTrack types
+    │   │   ├── prizes.ts               # prizes table + Prize/NewPrize types
+    │   │   ├── hackathon-templates.ts  # hackathon_templates table + types
+    │   │   ├── registrations.ts        # registrations table + types (Phase 3)
+    │   │   ├── registration-fields.ts  # registration_fields table + types (Phase 3)
+    │   │   ├── teams.ts                # teams table + types (Phase 3)
+    │   │   ├── team-members.ts         # team_members table + types (Phase 3)
+    │   │   ├── team-join-requests.ts   # team_join_requests table + types (Phase 3)
+    │   │   ├── team-invites.ts         # team_invites table + types (Phase 3)
+    │   │   └── team-up-requests.ts     # team_up_requests table + types (Phase 3)
     │   ├── seed/
     │   │   ├── index.ts               # Seed runner (npm run db:seed)
     │   │   └── templates.ts           # 4 default hackathon templates
@@ -314,7 +324,7 @@ hackforge/                              # PROJECT ROOT
         ├── email/
         │   ├── index.ts               # getEmailService() factory
         │   ├── types.ts               # EmailService interface + EmailTemplate type
-        │   ├── templates.ts           # Email HTML builders (verify, reset, invite)
+        │   ├── templates.ts           # Email HTML builders (13 Phase 3 templates added)
         │   └── adapters/
         │       └── resend-adapter.ts  # ResendEmailAdapter implementation
         ├── services/
@@ -323,7 +333,10 @@ hackforge/                              # PROJECT ROOT
         │   ├── org-service.ts         # Org CRUD, membership, invites
         │   ├── admin-service.ts       # Platform-wide queries (super_admin)
         │   ├── hackathon-service.ts   # Hackathon CRUD, slug gen, stats, manual transitions
-        │   └── hackathon-lifecycle.ts # Check-on-access status resolution engine
+        │   ├── hackathon-lifecycle.ts # Check-on-access status resolution engine
+        │   ├── registration-service.ts # Registration CRUD, autoRegister, discoverability (Phase 3)
+        │   ├── team-service.ts        # Team CRUD, membership, join requests, invites, approval (Phase 3)
+        │   └── team-up-service.ts     # Team-up request flow between unteamed participants (Phase 3)
         ├── storage/
         │   ├── types.ts               # StorageProvider interface + types
         │   ├── index.ts               # getStorageProvider() factory + re-exports
@@ -333,14 +346,17 @@ hackforge/                              # PROJECT ROOT
         └── validations/
             ├── auth.ts                # Zod schemas: signup, login, forgot/reset password
             ├── org.ts                 # Zod schemas: createOrg, invite, changeRole, remove
-            └── hackathon.ts           # Zod schemas: hackathon, track, phase, prize, publish, transition
+            ├── hackathon.ts           # Zod schemas: hackathon, track, phase, prize, publish, transition
+            ├── registration.ts        # Zod schemas: createRegistration, registrationField, upsertFields (Phase 3)
+            ├── team.ts                # Zod schemas: createTeam, updateTeam, joinRequest, inviteByEmail, etc. (Phase 3)
+            └── team-up.ts             # Zod schemas: createTeamUpRequest, respondToTeamUpRequest (Phase 3)
 ```
 
 ---
 
 ## Data Model
 
-> **Note:** Core Tables and Hackathon Tables below reflect the ACTUAL implemented schema (Phase 1 + Phase 2). Tables marked "Planned" are not yet built.
+> **Note:** All tables below reflect the ACTUAL implemented schema (Phase 1 + Phase 2 + Phase 3 Part 1). Tables in Phase 4+ sections are not yet built.
 
 ### Core Tables (Phase 1 — Implemented)
 
@@ -424,6 +440,7 @@ hackforge/                              # PROJECT ROOT
 | team_min_size | integer | NOT NULL, default 1 |
 | team_max_size | integer | NOT NULL, default 5 |
 | allow_individual | boolean | NOT NULL, default true |
+| requires_approval | boolean | NOT NULL, default false — when true, teams require admin approval |
 | rules_html | text | nullable, Tiptap HTML output |
 | faqs_html | text | nullable, Tiptap HTML output |
 | created_by | uuid | FK → users.id, NOT NULL, indexed |
@@ -483,38 +500,99 @@ hackforge/                              # PROJECT ROOT
 | is_active | boolean | NOT NULL, default true |
 | created_at | timestamptz | NOT NULL, default now() |
 
-### Registration & Teams (Phase 3 — Planned)
+### Registration & Teams (Phase 3 — Implemented)
 
 **registrations**
 | Column | Type | Notes |
 |--------|------|-------|
-| id | uuid | PK |
-| hackathon_id | uuid | FK |
-| user_id | uuid | FK |
-| status | registration_status enum | pending, approved, rejected |
-| form_data | jsonb | Custom field responses |
-| registered_at | timestamptz | |
+| id | uuid | PK, default random |
+| hackathon_id | uuid | FK → hackathons.id, NOT NULL, indexed |
+| user_id | uuid | FK → users.id, NOT NULL, indexed |
+| form_data | jsonb | nullable, `Record<string, string>` field responses |
+| is_discoverable | boolean | NOT NULL, default true — controls /browse/participants visibility |
+| registered_at | timestamptz | NOT NULL, default now() |
+| updated_at | timestamptz | NOT NULL, default now() |
+| deleted_at | timestamptz | nullable (soft delete) |
+| UNIQUE | | (hackathon_id, user_id) |
+
+**registration_fields**
+| Column | Type | Notes |
+|--------|------|-------|
+| id | uuid | PK, default random |
+| hackathon_id | uuid | FK → hackathons.id, NOT NULL, indexed |
+| label | text | NOT NULL |
+| field_type | text | NOT NULL — 'text' \| 'textarea' \| 'dropdown' (Zod-validated, not pgEnum) |
+| options | jsonb | nullable, `string[]` — dropdown choices only |
+| required | boolean | NOT NULL, default false |
+| order | integer | NOT NULL, default 0 |
+| created_at | timestamptz | NOT NULL, default now() |
+| updated_at | timestamptz | NOT NULL, default now() |
 
 **teams**
 | Column | Type | Notes |
 |--------|------|-------|
-| id | uuid | PK |
-| hackathon_id | uuid | FK |
+| id | uuid | PK, default random |
+| hackathon_id | uuid | FK → hackathons.id, NOT NULL, indexed |
 | name | text | NOT NULL |
 | description | text | nullable |
-| invite_code | text | UNIQUE |
-| track_id | uuid | FK → tracks.id, nullable |
-| created_by | uuid | FK → users.id |
-| created_at | timestamptz | |
+| invite_code | text | NOT NULL, UNIQUE — 8-char alphanumeric, indexed |
+| is_open | boolean | NOT NULL, default true — whether team accepts new members |
+| track_id | uuid | FK → tracks.id, nullable, indexed |
+| admin_status | team_admin_status enum | NOT NULL, default 'approved' — set to 'pending_review' when hackathon.requires_approval=true |
+| review_reason | text | nullable — set on pending_review transitions, cleared on approval |
+| created_by | uuid | FK → users.id, NOT NULL |
+| created_at | timestamptz | NOT NULL, default now() |
+| updated_at | timestamptz | NOT NULL, default now() |
+| deleted_at | timestamptz | nullable (soft delete — dissolution) |
 
 **team_members**
 | Column | Type | Notes |
 |--------|------|-------|
-| id | uuid | PK |
-| team_id | uuid | FK → teams.id |
-| user_id | uuid | FK → users.id |
-| role | team_role enum | lead, member |
-| joined_at | timestamptz | |
+| id | uuid | PK, default random |
+| team_id | uuid | FK → teams.id, NOT NULL, indexed |
+| user_id | uuid | FK → users.id, NOT NULL, indexed |
+| role | team_role enum | NOT NULL, default 'member' (lead, member) |
+| joined_at | timestamptz | NOT NULL, default now() — used for lead-transfer ordering |
+| created_at | timestamptz | NOT NULL, default now() |
+| UNIQUE | | (team_id, user_id) — hard-deleted on removal, no deleted_at |
+
+**team_join_requests**
+| Column | Type | Notes |
+|--------|------|-------|
+| id | uuid | PK, default random |
+| team_id | uuid | FK → teams.id, NOT NULL, indexed |
+| user_id | uuid | FK → users.id, NOT NULL, indexed |
+| status | join_request_status enum | NOT NULL, default 'pending', indexed |
+| message | text | nullable |
+| entry_point | text | NOT NULL — 'browse' \| 'link' \| 'participant_browse' |
+| requested_at | timestamptz | NOT NULL, default now() |
+| updated_at | timestamptz | NOT NULL, default now() |
+
+**team_invites**
+| Column | Type | Notes |
+|--------|------|-------|
+| id | uuid | PK, default random |
+| team_id | uuid | FK → teams.id, NOT NULL, indexed |
+| email | text | NOT NULL, indexed |
+| token | text | NOT NULL, UNIQUE, indexed — SHA-256 hash, 7-day expiry |
+| invited_by | uuid | FK → users.id, NOT NULL |
+| expires_at | timestamptz | NOT NULL |
+| accepted_at | timestamptz | nullable |
+| created_at | timestamptz | NOT NULL, default now() |
+| updated_at | timestamptz | NOT NULL, default now() |
+
+**team_up_requests**
+| Column | Type | Notes |
+|--------|------|-------|
+| id | uuid | PK, default random |
+| hackathon_id | uuid | FK → hackathons.id, NOT NULL, indexed — scoped to hackathon (no team exists yet at request time) |
+| from_user_id | uuid | FK → users.id, NOT NULL, indexed |
+| to_user_id | uuid | FK → users.id, NOT NULL, indexed |
+| proposed_team_name | text | NOT NULL |
+| message | text | nullable |
+| status | join_request_status enum | NOT NULL, default 'pending' |
+| requested_at | timestamptz | NOT NULL, default now() |
+| updated_at | timestamptz | NOT NULL, default now() |
 
 ### Submissions (Phase 4 — Planned)
 
@@ -594,7 +672,7 @@ hackforge/                              # PROJECT ROOT
 
 ## Enums
 
-### Implemented (Phase 1 + Phase 2 Part 1)
+### Implemented (Phase 1 + Phase 2 + Phase 3)
 ```
 platform_role: user, super_admin
 org_role: org_admin, member
@@ -603,12 +681,13 @@ template_type: idea_sprint, build_and_ship, innovation_pipeline, open_challenge
 visibility: public, org_only, invite_only
 phase_type: registration, submission, screening, judging, results
 phase_status: upcoming, active, completed
+team_role: lead, member
+team_admin_status: pending_review, approved, rejected
+join_request_status: pending, accepted, rejected
 ```
 
-### Planned (Phase 3+)
+### Planned (Phase 4+)
 ```
-registration_status: pending, approved, rejected
-team_role: lead, member
 submission_status: draft, submitted, late, withdrawn
 eval_status: pending, in_progress, completed
 notification_type: registration, submission, judging, result, announcement
@@ -632,4 +711,4 @@ notification_type: registration, submission, judging, result, announcement
 
 ---
 
-*This document reflects what EXISTS in the codebase as of Phase 2 completion (April 17, 2026). It is updated after each development part. Planned tables will be validated against actual implementation during their respective phases.*
+*This document reflects what EXISTS in the codebase as of Phase 3 Part 1 completion (April 17, 2026). It is updated after each development part. Planned tables will be validated against actual implementation during their respective phases.*

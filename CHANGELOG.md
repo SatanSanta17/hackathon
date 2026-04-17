@@ -6,6 +6,29 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Phase 3, Part 1: Registration + Team Formation — Schema & Data Layer (April 17, 2026)
+
+#### Added
+- Database schema: `registrations`, `registration_fields`, `teams`, `team_members`, `team_join_requests`, `team_invites`, `team_up_requests` tables (7 new schema files)
+- Postgres enums: `team_role` (lead, member), `team_admin_status` (pending_review, approved, rejected), `join_request_status` (pending, accepted, rejected)
+- `hackathons.requires_approval` column — boolean flag; when true, new teams are created with `admin_status = 'pending_review'`
+- `registrations.is_discoverable` — boolean flag controlling per-user visibility on `/browse/participants`
+- `registration_fields.field_type` as plain `text` (not pgEnum) — validated by Zod, easier to extend in V2
+- `teams.admin_status`, `teams.review_reason`, `teams.is_open`, `teams.invite_code` (8-char alphanumeric UNIQUE)
+- `team_up_requests` scoped to `hackathon_id` (not `team_id`) — no team exists at request time
+- Database migration `0003_minor_deathbird.sql` applied successfully
+- `registration-service.ts`: 8 methods including `autoRegister()` (idempotent, sets `formData: null`, `isDiscoverable: true`), `getDiscoverableParticipants()` (N+1 team membership check; acceptable at V1 scale)
+- `team-service.ts`: full team lifecycle — `createTeam`, `updateTeam`, `addMember`, `removeMember`, `dissolveTeam`, `transferLeadership`, `createJoinRequest`, `respondToJoinRequest`, `createTeamInvite`, `acceptTeamInvite`, `getTeamsByHackathon`, `getUserTeamForHackathon`, `approveTeam`, `rejectTeam`
+- `dissolveTeam()` runs hard-delete of members + soft-delete of team in a transaction; admin notification emails sent OUTSIDE transaction so email failure cannot roll back dissolution
+- `addMember()` calls `autoRegister()` BEFORE its transaction to keep transaction scope tight; `removeMember()` dissolves team AFTER its transaction commits if last member
+- `team-up-service.ts`: `createTeamUpRequest`, `respondToTeamUpRequest` (re-validates both users unteamed at acceptance time, then creates team + adds acceptee), `getTeamUpRequestsForUser`
+- Zod validation schemas: `registration.ts`, `team.ts`, `team-up.ts` (3 new validation files)
+- 13 new email templates in `templates.ts`: `teamCreatedEmail`, `teamJoinRequestEmail`, `teamJoinRequestAcceptedEmail`, `teamJoinRequestRejectedEmail`, `teamInviteEmail`, `teamInviteAcceptedEmail`, `teamDisbandedAdminEmail`, `teamApprovedEmail`, `teamRejectedEmail`, `teamUpRequestEmail`, `teamUpRequestAcceptedEmail`, `teamUpRequestRejectedEmail`, `registrationConfirmationEmail`
+
+#### Changed
+- `hackathon.ts` Zod schema: added `requiresApproval: z.boolean().optional()` to `updateHackathonSchema`
+- `docs/004-architecture.md`: updated Phase 3 data model from "Planned" stubs to full implemented schema; Enums section updated; status updated to Phase 3 Part 1 Complete
+
 ### Phase 2, Part 4: Public Hackathon Landing Page (April 17, 2026)
 
 #### Added
