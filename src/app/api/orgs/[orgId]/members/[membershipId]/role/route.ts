@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
 import { requireOrgRole } from '@/lib/auth/require-org-role';
+import { ERR } from '@/lib/constants/error-codes';
 import { changeMemberRole } from '@/lib/services/org-service';
 
 const patchSchema = z.object({
@@ -39,13 +40,13 @@ export async function PATCH(
     });
 
     if (!changeResult.success) {
-      if (changeResult.error === 'MEMBERSHIP_NOT_FOUND') {
+      if (changeResult.error === ERR.MEMBERSHIP_NOT_FOUND) {
         return NextResponse.json(
           { message: 'Membership not found.' },
           { status: 404 },
         );
       }
-      if (changeResult.error === 'LAST_ADMIN') {
+      if (changeResult.error === ERR.LAST_ADMIN) {
         return NextResponse.json(
           { message: 'Cannot demote the last admin. Promote another member first.' },
           { status: 400 },

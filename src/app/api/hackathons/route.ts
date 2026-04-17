@@ -52,9 +52,9 @@ export async function POST(request: Request) {
       );
     }
 
-    console.log('[api/hackathons] POST: hackathon created:', { id: result.hackathon?.id });
+    console.log('[api/hackathons] POST: hackathon created:', { id: result.hackathon?.id, phaseCount: result.phases?.length });
     return NextResponse.json(
-      { message: 'Hackathon created.', hackathon: result.hackathon },
+      { message: 'Hackathon created.', hackathon: result.hackathon, phases: result.phases ?? [] },
       { status: 201 },
     );
   } catch (err: unknown) {

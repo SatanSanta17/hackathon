@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 import { db } from '@/db';
 import { hackathons, teams } from '@/db/schema';
 import { requireVerifiedUser } from '@/lib/auth/require-verified';
+import { ERR } from '@/lib/constants/error-codes';
 import { acceptTeamInvite } from '@/lib/services/team-service';
 import { z } from 'zod';
 
@@ -24,7 +25,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const { teamId } = await acceptTeamInvite(parsed.data.token);
+    const { teamId } = await acceptTeamInvite(parsed.data.token, authResult.user.id);
 
     const [team] = await db
       .select({ hackathonId: teams.hackathonId })
@@ -45,23 +46,32 @@ export async function POST(request: Request) {
     return NextResponse.json({ teamId, hackathonSlug: hackathon?.slug ?? null });
   } catch (err) {
     if (err instanceof Error) {
-      if (err.message === 'INVITE_NOT_FOUND') {
+      if (err.message === ERR.INVITE_NOT_FOUND) {
         return NextResponse.json({ message: 'Invite not found.' }, { status: 404 });
       }
-      if (err.message === 'INVITE_EXPIRED') {
+      if (err.message === ERR.INVITE_EXPIRED) {
         return NextResponse.json(
           { message: 'This invite has expired. Ask the team lead to re-invite you.' },
           { status: 410 },
         );
       }
-      if (err.message === 'INVITE_ALREADY_USED') {
+      if (err.message === ERR.INVITE_ALREADY_USED) {
         return NextResponse.json(
           { message: 'This invite has already been used.' },
-          { status: 400 },
+          { status: 409 },
         );
       }
-      if (err.message === 'USER_NOT_FOUND') {
+      if (err.message === ERR.INVITE_EMAIL_MISMATCH) {
+        return NextResponse.json(
+          { message: 'This invite was sent to a different email address.' },
+          { status: 403 },
+        );
+      }
+      if (err.message === ERR.USER_NOT_FOUND) {
         return NextResponse.json({ message: 'No account found for this invite email.' }, { status: 404 });
+      }
+      if (err.message === ERR.TEAM_FULL) {
+        return NextResponse.json({ message: 'This team is full and can no longer accept members.' }, { status: 409 });
       }
     }
     return NextResponse.json({ message: 'Internal server error.' }, { status: 500 });

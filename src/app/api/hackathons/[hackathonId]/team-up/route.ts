@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { requireVerifiedUser } from '@/lib/auth/require-verified';
+import { ERR } from '@/lib/constants/error-codes';
 import { createTeamUpRequest } from '@/lib/services/team-up-service';
 import { createTeamUpRequestSchema } from '@/lib/validations/team-up';
 
@@ -38,31 +39,31 @@ export async function POST(
     return NextResponse.json({ request: teamUpRequest }, { status: 201 });
   } catch (err) {
     if (err instanceof Error) {
-      if (err.message === 'FROM_USER_NOT_REGISTERED') {
+      if (err.message === ERR.FROM_USER_NOT_REGISTERED) {
         return NextResponse.json(
           { message: 'You must register for this hackathon first.' },
           { status: 403 },
         );
       }
-      if (err.message === 'TO_USER_NOT_REGISTERED') {
+      if (err.message === ERR.TO_USER_NOT_REGISTERED) {
         return NextResponse.json(
           { message: 'That participant is not registered for this hackathon.' },
           { status: 400 },
         );
       }
-      if (err.message === 'FROM_USER_ALREADY_IN_TEAM') {
+      if (err.message === ERR.FROM_USER_ALREADY_IN_TEAM) {
         return NextResponse.json(
           { message: 'You are already on a team for this hackathon.' },
           { status: 403 },
         );
       }
-      if (err.message === 'TO_USER_ALREADY_IN_TEAM') {
+      if (err.message === ERR.TO_USER_ALREADY_IN_TEAM) {
         return NextResponse.json(
           { message: 'That participant is already on a team.' },
           { status: 400 },
         );
       }
-      if (err.message === 'TEAM_UP_REQUEST_ALREADY_PENDING') {
+      if (err.message === ERR.TEAM_UP_REQUEST_ALREADY_PENDING) {
         return NextResponse.json(
           { message: 'You already have a pending team-up request with this participant.' },
           { status: 409 },

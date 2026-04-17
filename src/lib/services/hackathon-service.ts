@@ -18,6 +18,8 @@ import type {
   HackathonTemplate,
   RegistrationField,
 } from '@/db/schema';
+import { ERR } from '@/lib/constants/error-codes';
+import { HACKATHON_STATUS, PHASE_STATUS } from '@/lib/constants/enums';
 import { slugify } from '@/lib/utils';
 import { applyStatusResolution } from './hackathon-lifecycle';
 import { getRegistrationFields } from './registration-service';
@@ -70,7 +72,7 @@ export async function createHackathon(params: {
   orgId: string;
   templateId: string;
   userId: string;
-}): Promise<{ success: boolean; hackathon?: Hackathon; error?: string }> {
+}): Promise<{ success: boolean; hackathon?: Hackathon; phases?: Phase[]; error?: string }> {
   console.log('[hackathon-service] createHackathon:', {
     orgId: params.orgId,
     templateId: params.templateId,
@@ -83,7 +85,7 @@ export async function createHackathon(params: {
     });
 
     if (!template) {
-      return { success: false, error: 'TEMPLATE_NOT_FOUND' };
+      return { success: false, error: ERR.TEMPLATE_NOT_FOUND };
     }
 
     // 2. Generate a placeholder title and slug
@@ -98,7 +100,7 @@ export async function createHackathon(params: {
         title: placeholderTitle,
         slug: slug.slug,
         templateType: template.templateType,
-        status: 'draft',
+        status: HACKATHON_STATUS.DRAFT,
         createdBy: params.userId,
       })
       .returning();
@@ -112,16 +114,22 @@ export async function createHackathon(params: {
         type: tp.type,
         order: tp.order,
         config: tp.config ?? {},
-        status: 'upcoming',
+        status: PHASE_STATUS.UPCOMING,
       });
     }
+
+    const createdPhases = await db
+      .select()
+      .from(phases)
+      .where(eq(phases.hackathonId, hackathon.id));
 
     console.log('[hackathon-service] createHackathon success:', {
       id: hackathon.id,
       slug: hackathon.slug,
+      phaseCount: createdPhases.length,
     });
 
-    return { success: true, hackathon };
+    return { success: true, hackathon, phases: createdPhases };
   } catch (err) {
     console.error('[hackathon-service] createHackathon failed:', err);
     return {
@@ -269,7 +277,7 @@ export async function getHackathonsByOrgId(params: {
   ];
 
   if (!params.includeArchived) {
-    conditions.push(ne(hackathons.status, 'archived'));
+    conditions.push(ne(hackathons.status, HACKATHON_STATUS.ARCHIVED));
   }
 
   const result = await db.query.hackathons.findMany({
@@ -278,7 +286,7 @@ export async function getHackathonsByOrgId(params: {
   });
 
   // Check-on-access for auto-transitionable statuses only
-  const autoTransitionable: Hackathon['status'][] = ['published', 'active', 'judging'];
+  const autoTransitionable: Hackathon['status'][] = [HACKATHON_STATUS.PUBLISHED, HACKATHON_STATUS.ACTIVE, HACKATHON_STATUS.JUDGING];
   const resolved = await Promise.all(
     result.map(async (h) => {
       if (!autoTransitionable.includes(h.status)) return h;
@@ -319,8 +327,8 @@ export async function getHackathonStats(orgId: string): Promise<HackathonStats> 
 
   return {
     total: allHackathons.length,
-    active: allHackathons.filter((h) => h.status === 'active').length,
-    draft: allHackathons.filter((h) => h.status === 'draft').length,
+    active: allHackathons.filter((h) => h.status === HACKATHON_STATUS.ACTIVE).length,
+    draft: allHackathons.filter((h) => h.status === HACKATHON_STATUS.DRAFT).length,
   };
 }
 
@@ -361,7 +369,7 @@ export async function updateHackathon(params: {
     });
 
     if (!existing) {
-      return { success: false, error: 'HACKATHON_NOT_FOUND' };
+      return { success: false, error: ERR.HACKATHON_NOT_FOUND };
     }
 
     // If slug is being changed, handle collision
@@ -425,16 +433,16 @@ export async function publishHackathon(params: {
   });
 
   if (!hackathon) {
-    return { success: false, error: 'HACKATHON_NOT_FOUND' };
+    return { success: false, error: ERR.HACKATHON_NOT_FOUND };
   }
 
-  if (hackathon.status !== 'draft') {
-    return { success: false, error: 'ONLY_DRAFTS_CAN_BE_PUBLISHED' };
+  if (hackathon.status !== HACKATHON_STATUS.DRAFT) {
+    return { success: false, error: ERR.ONLY_DRAFTS_CAN_BE_PUBLISHED };
   }
 
   // Validate publish requirements: title, at least one track, all phase dates set
   if (!hackathon.title || hackathon.title === 'Untitled Hackathon') {
-    return { success: false, error: 'TITLE_REQUIRED' };
+    return { success: false, error: ERR.TITLE_REQUIRED };
   }
 
   const hackathonTracks = await db.query.tracks.findMany({
@@ -442,7 +450,7 @@ export async function publishHackathon(params: {
   });
 
   if (hackathonTracks.length === 0) {
-    return { success: false, error: 'AT_LEAST_ONE_TRACK_REQUIRED' };
+    return { success: false, error: ERR.AT_LEAST_ONE_TRACK_REQUIRED };
   }
 
   const hackathonPhases = await db.query.phases.findMany({
@@ -454,12 +462,12 @@ export async function publishHackathon(params: {
   );
 
   if (phasesWithoutDates.length > 0) {
-    return { success: false, error: 'ALL_PHASE_DATES_REQUIRED' };
+    return { success: false, error: ERR.ALL_PHASE_DATES_REQUIRED };
   }
 
   await db
     .update(hackathons)
-    .set({ status: 'published', updatedAt: new Date() })
+    .set({ status: HACKATHON_STATUS.PUBLISHED, updatedAt: new Date() })
     .where(eq(hackathons.id, params.hackathonId));
 
   console.log('[hackathon-service] publishHackathon success:', { id: params.hackathonId });
@@ -483,8 +491,8 @@ export async function publishHackathon(params: {
  * edit the hackathon's phase dates instead.
  */
 const MANUAL_TRANSITIONS: Record<string, string[]> = {
-  draft: ['published'],
-  completed: ['archived'],
+  [HACKATHON_STATUS.DRAFT]: [HACKATHON_STATUS.PUBLISHED],
+  [HACKATHON_STATUS.COMPLETED]: [HACKATHON_STATUS.ARCHIVED],
 };
 
 export async function transitionHackathonStatus(params: {
@@ -503,7 +511,7 @@ export async function transitionHackathonStatus(params: {
   });
 
   if (!hackathon) {
-    return { success: false, error: 'HACKATHON_NOT_FOUND' };
+    return { success: false, error: ERR.HACKATHON_NOT_FOUND };
   }
 
   const allowed = MANUAL_TRANSITIONS[hackathon.status] || [];
@@ -515,7 +523,7 @@ export async function transitionHackathonStatus(params: {
   }
 
   // draft → published must go through publishHackathon() for validation
-  if (hackathon.status === 'draft' && params.targetStatus === 'published') {
+  if (hackathon.status === HACKATHON_STATUS.DRAFT && params.targetStatus === HACKATHON_STATUS.PUBLISHED) {
     return publishHackathon({ hackathonId: params.hackathonId, orgId: params.orgId });
   }
 
@@ -552,11 +560,11 @@ export async function softDeleteHackathon(params: {
   });
 
   if (!hackathon) {
-    return { success: false, error: 'HACKATHON_NOT_FOUND' };
+    return { success: false, error: ERR.HACKATHON_NOT_FOUND };
   }
 
-  if (hackathon.status !== 'draft') {
-    return { success: false, error: 'ONLY_DRAFTS_CAN_BE_DELETED' };
+  if (hackathon.status !== HACKATHON_STATUS.DRAFT) {
+    return { success: false, error: ERR.ONLY_DRAFTS_CAN_BE_DELETED };
   }
 
   // Mangle the slug on deletion so the original slug becomes available for a new hackathon.
@@ -585,7 +593,7 @@ export async function getDraftsByUser(params: {
     where: and(
       eq(hackathons.orgId, params.orgId),
       eq(hackathons.createdBy, params.userId),
-      eq(hackathons.status, 'draft'),
+      eq(hackathons.status, HACKATHON_STATUS.DRAFT),
       isNull(hackathons.deletedAt),
     ),
     orderBy: desc(hackathons.updatedAt),
@@ -620,7 +628,7 @@ export async function reorderTracks(params: {
     });
 
     if (!hackathon) {
-      return { success: false, error: 'HACKATHON_NOT_FOUND' };
+      return { success: false, error: ERR.HACKATHON_NOT_FOUND };
     }
 
     for (let i = 0; i < params.trackIds.length; i++) {
@@ -672,7 +680,7 @@ export async function reorderPrizes(params: {
     });
 
     if (!hackathon) {
-      return { success: false, error: 'HACKATHON_NOT_FOUND' };
+      return { success: false, error: ERR.HACKATHON_NOT_FOUND };
     }
 
     for (let i = 0; i < params.prizeIds.length; i++) {

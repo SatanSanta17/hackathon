@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
+import { ERR } from '@/lib/constants/error-codes';
 import { verifyEmail } from '@/lib/services/auth-service';
 
 const verifyEmailSchema = z.object({
@@ -25,7 +26,7 @@ export async function POST(request: Request) {
     const result = await verifyEmail({ token: parsed.data.token });
 
     if (!result.success) {
-      if (result.error === 'INVALID_TOKEN') {
+      if (result.error === ERR.INVALID_TOKEN) {
         return NextResponse.json(
           { message: 'Invalid or expired verification link.' },
           { status: 400 },

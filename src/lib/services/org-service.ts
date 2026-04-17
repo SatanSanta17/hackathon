@@ -6,6 +6,7 @@ import { organizations, orgMemberships, orgInvites, users } from '@/db/schema';
 import { getEmailService } from '@/lib/email';
 import { orgInviteEmail } from '@/lib/email/templates';
 import { AUTH_CONSTANTS } from '@/lib/auth/constants';
+import { ERR } from '@/lib/constants/error-codes';
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL!;
 
@@ -38,7 +39,7 @@ export async function createOrg(params: {
 
     if (existingOrg) {
       console.log('[org-service] createOrg: slug already taken');
-      return { success: false, error: 'SLUG_TAKEN' };
+      return { success: false, error: ERR.SLUG_TAKEN };
     }
 
     // 2. Insert organization
@@ -156,7 +157,7 @@ export async function inviteMember(params: {
 
       if (existingMembership) {
         console.log('[org-service] inviteMember: user is already a member');
-        return { success: false, error: 'ALREADY_MEMBER' };
+        return { success: false, error: ERR.ALREADY_MEMBER };
       }
     }
 
@@ -172,7 +173,7 @@ export async function inviteMember(params: {
 
     if (pendingInvite) {
       console.log('[org-service] inviteMember: pending invite already exists');
-      return { success: false, error: 'INVITE_PENDING' };
+      return { success: false, error: ERR.INVITE_PENDING };
     }
 
     // 3. Generate secure token
@@ -250,7 +251,7 @@ export async function acceptInvite(params: {
 
     if (!invite) {
       console.log('[org-service] acceptInvite: invalid or expired token');
-      return { success: false, error: 'INVALID_TOKEN' };
+      return { success: false, error: ERR.INVALID_TOKEN };
     }
 
     // Get org for the slug
@@ -263,7 +264,7 @@ export async function acceptInvite(params: {
 
     if (!org) {
       console.log('[org-service] acceptInvite: organization not found');
-      return { success: false, error: 'ORG_NOT_FOUND' };
+      return { success: false, error: ERR.ORG_NOT_FOUND };
     }
 
     // 2. Check if already a member (idempotent)
@@ -375,7 +376,7 @@ export async function changeMemberRole(params: {
 
     if (!membership) {
       console.log('[org-service] changeMemberRole: membership not found');
-      return { success: false, error: 'MEMBERSHIP_NOT_FOUND' };
+      return { success: false, error: ERR.MEMBERSHIP_NOT_FOUND };
     }
 
     // If demoting from org_admin, check this isn't the last one
@@ -393,7 +394,7 @@ export async function changeMemberRole(params: {
 
       if (adminCount.value <= 1) {
         console.log('[org-service] changeMemberRole: cannot demote last admin');
-        return { success: false, error: 'LAST_ADMIN' };
+        return { success: false, error: ERR.LAST_ADMIN };
       }
     }
 
@@ -442,7 +443,7 @@ export async function removeMember(params: {
 
     if (!membership) {
       console.log('[org-service] removeMember: membership not found');
-      return { success: false, error: 'MEMBERSHIP_NOT_FOUND' };
+      return { success: false, error: ERR.MEMBERSHIP_NOT_FOUND };
     }
 
     // If removing an org_admin, check this isn't the last one
@@ -460,7 +461,7 @@ export async function removeMember(params: {
 
       if (adminCount.value <= 1) {
         console.log('[org-service] removeMember: cannot remove last admin');
-        return { success: false, error: 'LAST_ADMIN' };
+        return { success: false, error: ERR.LAST_ADMIN };
       }
     }
 

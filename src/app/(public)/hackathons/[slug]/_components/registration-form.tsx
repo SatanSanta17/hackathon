@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { useSession } from 'next-auth/react';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -25,10 +24,11 @@ interface RegistrationFormProps {
   hackathonId: string;
   fields: RegistrationField[];
   onSuccess: () => void;
+  userName: string | null;
+  userEmail: string | null;
 }
 
-export function RegistrationForm({ hackathonId, fields, onSuccess }: RegistrationFormProps) {
-  const { data: session } = useSession();
+export function RegistrationForm({ hackathonId, fields, onSuccess, userName, userEmail }: RegistrationFormProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
 
@@ -113,11 +113,11 @@ export function RegistrationForm({ hackathonId, fields, onSuccess }: Registratio
       {/* Read-only identity fields */}
       <div className="space-y-1">
         <Label>Full Name</Label>
-        <Input value={session?.user?.name ?? ''} readOnly className="opacity-60" />
+        <Input value={userName ?? ''} readOnly className="opacity-60" />
       </div>
       <div className="space-y-1">
         <Label>Email</Label>
-        <Input value={session?.user?.email ?? ''} readOnly className="opacity-60" />
+        <Input value={userEmail ?? ''} readOnly className="opacity-60" />
       </div>
 
       {/* Standard optional fields */}

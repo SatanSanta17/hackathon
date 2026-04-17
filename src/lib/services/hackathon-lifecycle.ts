@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import { db } from '@/db';
 import { hackathons, phases } from '@/db/schema';
 import type { Hackathon, Phase } from '@/db/schema';
+import { HACKATHON_STATUS, PHASE_STATUS, PHASE_TYPE } from '@/lib/constants/enums';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -48,9 +49,9 @@ export function resolveStatuses(
 
   // Skip statuses that don't auto-transition
   if (
-    hackathon.status === 'draft' ||
-    hackathon.status === 'completed' ||
-    hackathon.status === 'archived'
+    hackathon.status === HACKATHON_STATUS.DRAFT ||
+    hackathon.status === HACKATHON_STATUS.COMPLETED ||
+    hackathon.status === HACKATHON_STATUS.ARCHIVED
   ) {
     return result;
   }
@@ -65,13 +66,13 @@ export function resolveStatuses(
     const start = new Date(phase.startDate);
     const end = new Date(phase.endDate);
 
-    if (phase.status === 'upcoming' && now >= start && now < end) {
-      result.phaseChanges.push({ phaseId: phase.id, newStatus: 'active' });
-    } else if (phase.status === 'upcoming' && now >= end) {
+    if (phase.status === PHASE_STATUS.UPCOMING && now >= start && now < end) {
+      result.phaseChanges.push({ phaseId: phase.id, newStatus: PHASE_STATUS.ACTIVE });
+    } else if (phase.status === PHASE_STATUS.UPCOMING && now >= end) {
       // Phase was missed entirely (start and end both passed while 'upcoming')
-      result.phaseChanges.push({ phaseId: phase.id, newStatus: 'completed' });
-    } else if (phase.status === 'active' && now >= end) {
-      result.phaseChanges.push({ phaseId: phase.id, newStatus: 'completed' });
+      result.phaseChanges.push({ phaseId: phase.id, newStatus: PHASE_STATUS.COMPLETED });
+    } else if (phase.status === PHASE_STATUS.ACTIVE && now >= end) {
+      result.phaseChanges.push({ phaseId: phase.id, newStatus: PHASE_STATUS.COMPLETED });
     }
   }
 
@@ -85,24 +86,24 @@ export function resolveStatuses(
   const firstPhase = effectivePhases[0];
   const lastPhase = effectivePhases[effectivePhases.length - 1];
 
-  if (hackathon.status === 'published' && firstPhase?.startDate) {
+  if (hackathon.status === HACKATHON_STATUS.PUBLISHED && firstPhase?.startDate) {
     // published → active: first phase has started
     if (now >= new Date(firstPhase.startDate)) {
       result.hackathonChanged = true;
-      result.newHackathonStatus = 'active';
+      result.newHackathonStatus = HACKATHON_STATUS.ACTIVE;
     }
-  } else if (hackathon.status === 'active') {
+  } else if (hackathon.status === HACKATHON_STATUS.ACTIVE) {
     // active → judging: look for a judging phase whose start_date has passed
-    const judgingPhase = effectivePhases.find((p) => p.type === 'judging');
+    const judgingPhase = effectivePhases.find((p) => p.type === PHASE_TYPE.JUDGING);
     if (judgingPhase?.startDate && now >= new Date(judgingPhase.startDate)) {
       result.hackathonChanged = true;
-      result.newHackathonStatus = 'judging';
+      result.newHackathonStatus = HACKATHON_STATUS.JUDGING;
     }
-  } else if (hackathon.status === 'judging' && lastPhase?.endDate) {
+  } else if (hackathon.status === HACKATHON_STATUS.JUDGING && lastPhase?.endDate) {
     // judging → completed: last phase has ended
     if (now >= new Date(lastPhase.endDate)) {
       result.hackathonChanged = true;
-      result.newHackathonStatus = 'completed';
+      result.newHackathonStatus = HACKATHON_STATUS.COMPLETED;
     }
   }
 

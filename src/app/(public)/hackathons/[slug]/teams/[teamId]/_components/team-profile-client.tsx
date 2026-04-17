@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { TEAM_ADMIN_STATUS, JOIN_ENTRY_POINT } from '@/lib/constants/enums';
 import type { JoinRequestForTeam, TeamMemberDetail, TeamProfileData } from '@/lib/services/team-service';
 import { JoinRequestDialog } from '../../_components/join-request-dialog';
 import { EditTeamDialog } from './edit-team-dialog';
@@ -42,10 +43,14 @@ function getInitials(name: string) {
     .slice(0, 2);
 }
 
+const ENTRY_POINT_LABELS: Record<string, string> = {
+  [JOIN_ENTRY_POINT.LINK]: 'Via Link',
+  [JOIN_ENTRY_POINT.PARTICIPANT_BROWSE]: 'Via Participants',
+  [JOIN_ENTRY_POINT.BROWSE]: 'Browsed',
+};
+
 function entryPointLabel(ep: string) {
-  if (ep === 'link') return 'Via Link';
-  if (ep === 'participant_browse') return 'Via Participants';
-  return 'Browsed';
+  return ENTRY_POINT_LABELS[ep] ?? ep;
 }
 
 export function TeamProfileClient({
@@ -60,6 +65,11 @@ export function TeamProfileClient({
   const router = useRouter();
   const [members, setMembers] = useState<TeamMemberDetail[]>(team.members);
   const [joinRequests, setJoinRequests] = useState<JoinRequestForTeam[]>(initialJoinRequests);
+
+  // Sync members from server after router.refresh() re-renders the parent
+  useEffect(() => {
+    setMembers(team.members);
+  }, [team]);
   const [teamUpRequests, setTeamUpRequests] = useState<TeamUpRequestRow[]>([]);
   const [joinRequestDialogOpen, setJoinRequestDialogOpen] = useState(false);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -151,10 +161,10 @@ export function TeamProfileClient({
 
   const adminStatusBadge = () => {
     if (!hackathon.requiresApproval) return null;
-    if (team.adminStatus === 'pending_review') {
+    if (team.adminStatus === TEAM_ADMIN_STATUS.PENDING_REVIEW) {
       return <Badge className="bg-amber-500/15 text-amber-700 hover:bg-amber-500/15">Under Review</Badge>;
     }
-    if (team.adminStatus === 'approved') {
+    if (team.adminStatus === TEAM_ADMIN_STATUS.APPROVED) {
       return <Badge className="bg-green-500/15 text-green-700 hover:bg-green-500/15">Approved</Badge>;
     }
     return <Badge variant="destructive">Not Approved</Badge>;
@@ -201,14 +211,14 @@ export function TeamProfileClient({
       {/* Status alert for requires_approval hackathons */}
       {hackathon.requiresApproval && viewerRole !== null && (
         <>
-          {team.adminStatus === 'pending_review' && (
+          {team.adminStatus === TEAM_ADMIN_STATUS.PENDING_REVIEW && (
             <Alert className="border-amber-200 bg-amber-50 text-amber-800">
               <AlertDescription>
                 Your team is under review. You'll be notified once approved.
               </AlertDescription>
             </Alert>
           )}
-          {team.adminStatus === 'rejected' && (
+          {team.adminStatus === TEAM_ADMIN_STATUS.REJECTED && (
             <Alert variant="destructive">
               <AlertDescription>
                 Your team was not approved. Contact the organiser for more information.
@@ -402,7 +412,7 @@ export function TeamProfileClient({
         teamId={team.id}
         teamName={team.name}
         hackathonId={hackathon.id}
-        entryPoint="browse"
+        entryPoint={JOIN_ENTRY_POINT.BROWSE}
         open={joinRequestDialogOpen}
         onOpenChange={setJoinRequestDialogOpen}
         onSuccess={() => {}}

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 
+import { ERR } from '@/lib/constants/error-codes';
 import { signUpSchema } from '@/lib/validations/auth';
 import { signUp } from '@/lib/services/auth-service';
 
@@ -23,7 +24,7 @@ export async function POST(request: Request) {
     const result = await signUp(parsed.data);
 
     if (!result.success) {
-      if (result.error === 'EMAIL_EXISTS') {
+      if (result.error === ERR.EMAIL_EXISTS) {
         return NextResponse.json(
           { message: 'An account with this email already exists.' },
           { status: 409 },

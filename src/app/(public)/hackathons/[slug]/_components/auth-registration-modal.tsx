@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { CheckCircle2 } from 'lucide-react';
 
@@ -27,6 +27,8 @@ interface AuthRegistrationModalProps {
   hackathonTitle: string;
   registrationFields: RegistrationField[];
   initialMode: 'auth' | 'register';
+  userName: string | null;
+  userEmail: string | null;
 }
 
 export function AuthRegistrationModal({
@@ -37,11 +39,16 @@ export function AuthRegistrationModal({
   hackathonTitle,
   registrationFields,
   initialMode,
+  userName,
+  userEmail,
 }: AuthRegistrationModalProps) {
   const [mode, setMode] = useState<ModalMode>(initialMode);
 
+  useEffect(() => {
+    if (open) setMode(initialMode);
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
   function handleOpenChange(nextOpen: boolean) {
-    if (nextOpen) setMode(initialMode);
     onOpenChange(nextOpen);
   }
 
@@ -93,6 +100,8 @@ export function AuthRegistrationModal({
               hackathonId={hackathonId}
               fields={registrationFields}
               onSuccess={() => setMode('success')}
+              userName={userName}
+              userEmail={userEmail}
             />
           </>
         )}

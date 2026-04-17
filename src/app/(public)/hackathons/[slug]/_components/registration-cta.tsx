@@ -36,6 +36,8 @@ interface RegistrationCtaProps {
   hackathonTitle: string;
   hackathonStatus: string;
   registrationFields: RegistrationField[];
+  userName: string | null;
+  userEmail: string | null;
 }
 
 export function RegistrationCta({
@@ -44,6 +46,8 @@ export function RegistrationCta({
   hackathonTitle,
   hackathonStatus,
   registrationFields,
+  userName,
+  userEmail,
 }: RegistrationCtaProps) {
   const [modalOpen, setModalOpen] = useState(false);
   const [modalInitialMode, setModalInitialMode] = useState<'auth' | 'register'>('auth');
@@ -150,6 +154,8 @@ export function RegistrationCta({
           hackathonTitle={hackathonTitle}
           registrationFields={registrationFields}
           initialMode={modalInitialMode}
+          userName={userName}
+          userEmail={userEmail}
         />
       )}
 

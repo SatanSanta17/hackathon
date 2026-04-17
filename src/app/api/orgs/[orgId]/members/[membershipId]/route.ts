@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { requireOrgRole } from '@/lib/auth/require-org-role';
+import { ERR } from '@/lib/constants/error-codes';
 import { removeMember } from '@/lib/services/org-service';
 
 /**
@@ -20,13 +21,13 @@ export async function DELETE(
     const removeResult = await removeMember({ membershipId, orgId });
 
     if (!removeResult.success) {
-      if (removeResult.error === 'MEMBERSHIP_NOT_FOUND') {
+      if (removeResult.error === ERR.MEMBERSHIP_NOT_FOUND) {
         return NextResponse.json(
           { message: 'Membership not found.' },
           { status: 404 },
         );
       }
-      if (removeResult.error === 'LAST_ADMIN') {
+      if (removeResult.error === ERR.LAST_ADMIN) {
         return NextResponse.json(
           { message: 'Cannot remove the last admin. Promote another member first.' },
           { status: 400 },

@@ -5,6 +5,7 @@ import Link from 'next/link';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { JOIN_ENTRY_POINT } from '@/lib/constants/enums';
 import type { TeamBrowseItem } from '@/lib/services/team-service';
 import { JoinRequestDialog } from './join-request-dialog';
 
@@ -15,6 +16,7 @@ interface TeamBrowseCardProps {
   isAuthenticated: boolean;
   isRegistered: boolean;
   hasTeam: boolean;
+  userTeamId: string | null;
 }
 
 export function TeamBrowseCard({
@@ -24,6 +26,7 @@ export function TeamBrowseCard({
   isAuthenticated,
   isRegistered,
   hasTeam,
+  userTeamId,
 }: TeamBrowseCardProps) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [requested, setRequested] = useState(false);
@@ -48,11 +51,14 @@ export function TeamBrowseCard({
       );
     }
     if (hasTeam) {
-      return (
-        <Button size="sm" disabled>
-          Already on a Team
-        </Button>
-      );
+      if (team.id === userTeamId) {
+        return (
+          <Button size="sm" variant="outline" asChild>
+            <Link href={`/hackathons/${hackathonSlug}/teams/${team.id}`}>View Team</Link>
+          </Button>
+        );
+      }
+      return null;
     }
     if (isFull) {
       return <Button size="sm" disabled>Team Full</Button>;
@@ -108,7 +114,7 @@ export function TeamBrowseCard({
         teamId={team.id}
         teamName={team.name}
         hackathonId={hackathonId}
-        entryPoint="browse"
+        entryPoint={JOIN_ENTRY_POINT.BROWSE}
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         onSuccess={() => setRequested(true)}

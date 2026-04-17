@@ -193,6 +193,12 @@ export function StepParticipation({
 
       {/* Custom registration fields */}
       <div className="space-y-4">
+        <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300">
+          <p className="font-medium">Already captured automatically</p>
+          <p className="mt-0.5 text-xs opacity-80">
+            Full Name, Email, Designation, and Department are collected by default — no need to add them here.
+          </p>
+        </div>
         <div className="flex items-center justify-between">
           <div>
             <p className="text-sm font-medium">Custom Registration Fields</p>

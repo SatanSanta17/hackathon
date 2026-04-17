@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { requireVerifiedUser } from '@/lib/auth/require-verified';
+import { ERR } from '@/lib/constants/error-codes';
 import { createOrgSchema } from '@/lib/validations/org';
 import { createOrg, getUserOrgs } from '@/lib/services/org-service';
 
@@ -32,7 +33,7 @@ export async function POST(request: Request) {
     });
 
     if (!orgResult.success) {
-      if (orgResult.error === 'SLUG_TAKEN') {
+      if (orgResult.error === ERR.SLUG_TAKEN) {
         return NextResponse.json(
           { message: 'This slug is already taken. Please choose another.' },
           { status: 409 },

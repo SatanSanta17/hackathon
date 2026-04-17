@@ -1,4 +1,6 @@
 import { redirect, notFound } from 'next/navigation';
+import Link from 'next/link';
+import { ChevronLeft } from 'lucide-react';
 
 import { auth } from '@/lib/auth/auth';
 import { getOrgBySlug } from '@/lib/services/org-service';
@@ -51,6 +53,13 @@ export default async function EditHackathonPage({
 
   return (
     <div className="space-y-6">
+      <Link
+        href={`/dashboard/${orgSlug}/hackathons`}
+        className="inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <ChevronLeft className="size-4" />
+        Hackathons
+      </Link>
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Edit Hackathon</h1>
         <p className="text-sm text-muted-foreground">

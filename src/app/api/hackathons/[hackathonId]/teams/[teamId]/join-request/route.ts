@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 import { db } from '@/db';
 import { hackathons, teamMembers, teams } from '@/db/schema';
 import { requireVerifiedUser } from '@/lib/auth/require-verified';
+import { ERR } from '@/lib/constants/error-codes';
 import { getUserTeamForHackathon, createJoinRequest } from '@/lib/services/team-service';
 import { joinRequestSchema } from '@/lib/validations/team';
 
@@ -76,7 +77,7 @@ export async function POST(
     );
     return NextResponse.json({ request: { id: joinRequest.id, status: joinRequest.status } }, { status: 201 });
   } catch (err) {
-    if (err instanceof Error && err.message === 'JOIN_REQUEST_ALREADY_PENDING') {
+    if (err instanceof Error && err.message === ERR.JOIN_REQUEST_ALREADY_PENDING) {
       return NextResponse.json(
         { message: 'You already have a pending request for this team.' },
         { status: 409 },

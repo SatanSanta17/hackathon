@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 import { db } from '@/db';
 import { hackathons } from '@/db/schema';
 import { requireVerifiedUser } from '@/lib/auth/require-verified';
+import { ERR } from '@/lib/constants/error-codes';
 import { getTeamWithMembers, respondToJoinRequest } from '@/lib/services/team-service';
 import { respondToJoinRequestSchema } from '@/lib/validations/team';
 
@@ -55,13 +56,13 @@ export async function PATCH(
     return NextResponse.json({ message: `Request ${parsed.data.status}.` });
   } catch (err) {
     if (err instanceof Error) {
-      if (err.message === 'REQUEST_NOT_FOUND') {
+      if (err.message === ERR.REQUEST_NOT_FOUND) {
         return NextResponse.json({ message: 'Join request not found.' }, { status: 404 });
       }
-      if (err.message === 'REQUEST_ALREADY_RESOLVED') {
+      if (err.message === ERR.REQUEST_ALREADY_RESOLVED) {
         return NextResponse.json({ message: 'This request has already been resolved.' }, { status: 409 });
       }
-      if (err.message === 'TEAM_FULL') {
+      if (err.message === ERR.TEAM_FULL) {
         return NextResponse.json({ message: 'The team is full.' }, { status: 400 });
       }
     }

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
 import { requireVerifiedUser } from '@/lib/auth/require-verified';
+import { ERR } from '@/lib/constants/error-codes';
 import { acceptInvite } from '@/lib/services/org-service';
 
 const acceptInviteSchema = z.object({
@@ -35,13 +36,13 @@ export async function POST(request: Request) {
     });
 
     if (!acceptResult.success) {
-      if (acceptResult.error === 'INVALID_TOKEN') {
+      if (acceptResult.error === ERR.INVALID_TOKEN) {
         return NextResponse.json(
           { message: 'This invitation link is invalid or has expired.' },
           { status: 400 },
         );
       }
-      if (acceptResult.error === 'ORG_NOT_FOUND') {
+      if (acceptResult.error === ERR.ORG_NOT_FOUND) {
         return NextResponse.json(
           { message: 'The organization no longer exists.' },
           { status: 400 },

@@ -1,5 +1,6 @@
 import { notFound, redirect } from 'next/navigation';
 import Link from 'next/link';
+import { ChevronLeft } from 'lucide-react';
 
 import { auth } from '@/lib/auth/auth';
 import { getOrgBySlug, checkUserOrgRole } from '@/lib/services/org-service';
@@ -30,6 +31,13 @@ export default async function AdminTeamsPage({
 
   return (
     <div className="space-y-6">
+      <Link
+        href={`/dashboard/${orgSlug}/hackathons`}
+        className="inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <ChevronLeft className="size-4" />
+        Hackathons
+      </Link>
       <div className="flex items-center justify-between">
         <div>
           <h1 className="font-heading text-2xl font-semibold">Teams</h1>

@@ -14,6 +14,7 @@ interface ParticipantCardProps {
   viewerIsRegisteredUnteamed: boolean;
   viewerIsLead: boolean;
   viewerTeamId: string | null;
+  viewerTeamIsFull: boolean;
 }
 
 function getInitials(name: string) {
@@ -31,6 +32,7 @@ export function ParticipantCard({
   viewerIsRegisteredUnteamed,
   viewerIsLead,
   viewerTeamId,
+  viewerTeamIsFull,
 }: ParticipantCardProps) {
   const [teamUpOpen, setTeamUpOpen] = useState(false);
   const [requested, setRequested] = useState(false);
@@ -99,6 +101,8 @@ export function ParticipantCard({
         {viewerIsLead && !viewerIsRegisteredUnteamed && (
           invited ? (
             <Button size="sm" disabled>Invited!</Button>
+          ) : viewerTeamIsFull ? (
+            <Button size="sm" variant="outline" disabled>Team Full</Button>
           ) : (
             <Button size="sm" variant="outline" onClick={handleInvite} disabled={inviting}>
               {inviting ? 'Inviting…' : 'Invite to Team'}

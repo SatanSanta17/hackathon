@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { requireOrgRole } from '@/lib/auth/require-org-role';
+import { ERR } from '@/lib/constants/error-codes';
 import { inviteMemberSchema } from '@/lib/validations/org';
 import { inviteMember } from '@/lib/services/org-service';
 import { db } from '@/db';
@@ -54,13 +55,13 @@ export async function POST(
     });
 
     if (!inviteResult.success) {
-      if (inviteResult.error === 'ALREADY_MEMBER') {
+      if (inviteResult.error === ERR.ALREADY_MEMBER) {
         return NextResponse.json(
           { message: 'This user is already a member of the organization.' },
           { status: 400 },
         );
       }
-      if (inviteResult.error === 'INVITE_PENDING') {
+      if (inviteResult.error === ERR.INVITE_PENDING) {
         return NextResponse.json(
           { message: 'A pending invitation already exists for this email.' },
           { status: 400 },

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { requireVerifiedUser } from '@/lib/auth/require-verified';
+import { ERR } from '@/lib/constants/error-codes';
 import { getTeamWithMembers, removeMember } from '@/lib/services/team-service';
 
 /**
@@ -31,7 +32,7 @@ export async function POST(
     await removeMember(teamId, user.id);
     return NextResponse.json({ message: 'Left team.' });
   } catch (err) {
-    if (err instanceof Error && err.message === 'MEMBER_NOT_FOUND') {
+    if (err instanceof Error && err.message === ERR.MEMBER_NOT_FOUND) {
       return NextResponse.json({ message: 'Member not found.' }, { status: 404 });
     }
     return NextResponse.json({ message: 'Internal server error.' }, { status: 500 });

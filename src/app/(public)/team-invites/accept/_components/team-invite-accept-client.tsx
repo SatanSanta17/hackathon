@@ -24,6 +24,7 @@ export function TeamInviteAcceptClient({
 }: TeamInviteAcceptClientProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [teamFull, setTeamFull] = useState(false);
 
   const callbackUrl = encodeURIComponent(`/team-invites/accept?token=${token}`);
 
@@ -37,6 +38,10 @@ export function TeamInviteAcceptClient({
       });
       const data = await res.json();
       if (!res.ok) {
+        if (res.status === 409) {
+          setTeamFull(true);
+          return;
+        }
         toast.error(data.message ?? 'Failed to accept invite.');
         return;
       }
@@ -57,7 +62,11 @@ export function TeamInviteAcceptClient({
           </p>
         </div>
 
-        {isAuthenticated ? (
+        {teamFull ? (
+          <div className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-center text-sm text-destructive">
+            This team is full and can no longer accept new members.
+          </div>
+        ) : isAuthenticated ? (
           <Button className="w-full" onClick={handleAccept} disabled={loading}>
             {loading ? 'Accepting…' : 'Accept Invite'}
           </Button>

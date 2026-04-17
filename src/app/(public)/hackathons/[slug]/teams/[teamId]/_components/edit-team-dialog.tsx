@@ -24,15 +24,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { updateTeamSchema } from '@/lib/validations/team';
+import { updateTeamSchema, type UpdateTeamInput } from '@/lib/validations/team';
 import type { TeamProfileData } from '@/lib/services/team-service';
-
-type UpdateTeamInput = {
-  name?: string;
-  isOpen?: boolean;
-  description?: string;
-  trackId?: string;
-};
 
 interface EditTeamDialogProps {
   team: TeamProfileData;
@@ -60,11 +53,12 @@ export function EditTeamDialog({
     reset,
     formState: { errors },
   } = useForm<UpdateTeamInput>({
-    resolver: zodResolver(updateTeamSchema) as any,
+    resolver: zodResolver(updateTeamSchema),
     defaultValues: {
       name: team.name,
       description: team.description ?? '',
       isOpen: team.isOpen,
+      trackId: team.trackId ?? undefined,
     },
   });
 
@@ -76,6 +70,7 @@ export function EditTeamDialog({
         name: team.name,
         description: team.description ?? '',
         isOpen: team.isOpen,
+        trackId: team.trackId ?? undefined,
       });
     }
   }, [open, team, reset]);

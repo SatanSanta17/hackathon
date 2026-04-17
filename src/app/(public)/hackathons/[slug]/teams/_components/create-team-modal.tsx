@@ -25,14 +25,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { createTeamSchema } from '@/lib/validations/team';
-
-type CreateTeamInput = {
-  name: string;
-  isOpen: boolean;
-  description?: string;
-  trackId?: string;
-};
+import { createTeamSchema, type CreateTeamInput } from '@/lib/validations/team';
 
 interface CreateTeamModalProps {
   hackathonId: string;
@@ -60,8 +53,8 @@ export function CreateTeamModal({
     reset,
     formState: { errors },
   } = useForm<CreateTeamInput>({
-    resolver: zodResolver(createTeamSchema) as any,
-    defaultValues: { isOpen: true },
+    resolver: zodResolver(createTeamSchema),
+    defaultValues: { isOpen: true, trackId: tracks[0]?.id },
   });
 
   const isOpen = watch('isOpen');
@@ -114,15 +107,15 @@ export function CreateTeamModal({
 
           {tracks.length > 0 && (
             <div className="space-y-2">
-              <Label>Track</Label>
+              <Label>Track *</Label>
               <Select
-                onValueChange={(v) => setValue('trackId', v === 'none' ? undefined : v)}
+                defaultValue={tracks[0]?.id}
+                onValueChange={(v) => setValue('trackId', v)}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="No track" />
+                  <SelectValue placeholder="Select a track" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">No track</SelectItem>
                   {tracks.map((t) => (
                     <SelectItem key={t.id} value={t.id}>
                       {t.name}

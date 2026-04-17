@@ -13,6 +13,7 @@ interface TeamBrowseClientProps {
   isAuthenticated: boolean;
   isRegistered: boolean;
   hasTeam: boolean;
+  userTeamId: string | null;
 }
 
 export function TeamBrowseClient({
@@ -22,6 +23,7 @@ export function TeamBrowseClient({
   isAuthenticated,
   isRegistered,
   hasTeam,
+  userTeamId,
 }: TeamBrowseClientProps) {
   const [teams, setTeams] = useState<TeamBrowseItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -105,6 +107,7 @@ export function TeamBrowseClient({
               isAuthenticated={isAuthenticated}
               isRegistered={isRegistered}
               hasTeam={hasTeam}
+              userTeamId={userTeamId}
             />
           ))}
         </div>

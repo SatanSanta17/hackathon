@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 import { db } from '@/db';
 import { hackathons } from '@/db/schema';
 import { requireVerifiedUser } from '@/lib/auth/require-verified';
+import { ERR } from '@/lib/constants/error-codes';
 import { getRegistrationByUserAndHackathon } from '@/lib/services/registration-service';
 import {
   createTeam,
@@ -100,7 +101,7 @@ export async function POST(
       { status: 201 },
     );
   } catch (err) {
-    if (err instanceof Error && err.message === 'ALREADY_IN_TEAM') {
+    if (err instanceof Error && err.message === ERR.ALREADY_IN_TEAM) {
       return NextResponse.json(
         { message: 'You are already on a team for this hackathon.' },
         { status: 403 },

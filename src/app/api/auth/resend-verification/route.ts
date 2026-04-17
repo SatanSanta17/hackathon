@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { auth } from '@/lib/auth/auth';
+import { ERR } from '@/lib/constants/error-codes';
 import { resendVerificationEmail } from '@/lib/services/auth-service';
 
 export async function POST() {
@@ -19,13 +20,13 @@ export async function POST() {
     const result = await resendVerificationEmail({ userId: session.user.id });
 
     if (!result.success) {
-      if (result.error === 'ALREADY_VERIFIED') {
+      if (result.error === ERR.ALREADY_VERIFIED) {
         return NextResponse.json(
           { message: 'Email is already verified.' },
           { status: 400 },
         );
       }
-      if (result.error === 'EMAIL_FAILED') {
+      if (result.error === ERR.EMAIL_FAILED) {
         return NextResponse.json(
           { message: 'Failed to send verification email. Please try again.' },
           { status: 500 },

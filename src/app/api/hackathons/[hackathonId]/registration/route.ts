@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 import { db } from '@/db';
 import { hackathons } from '@/db/schema';
 import { requireVerifiedUser } from '@/lib/auth/require-verified';
+import { ERR } from '@/lib/constants/error-codes';
 import {
   getRegistrationByUserAndHackathon,
   updateRegistration,
@@ -75,7 +76,7 @@ export async function PATCH(
     const updated = await updateRegistration(registration.id, parsed.data);
     return NextResponse.json({ registration: updated });
   } catch (err) {
-    if (err instanceof Error && err.message === 'REGISTRATION_NOT_FOUND') {
+    if (err instanceof Error && err.message === ERR.REGISTRATION_NOT_FOUND) {
       return NextResponse.json({ message: 'Registration not found.' }, { status: 404 });
     }
     return NextResponse.json({ message: 'Internal server error.' }, { status: 500 });

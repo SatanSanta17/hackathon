@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 import { db } from '@/db';
 import { hackathons } from '@/db/schema';
 import { requireVerifiedUser } from '@/lib/auth/require-verified';
+import { ERR } from '@/lib/constants/error-codes';
 import { getTeamWithMembers, updateTeam } from '@/lib/services/team-service';
 import { updateTeamSchema } from '@/lib/validations/team';
 
@@ -89,7 +90,7 @@ export async function PATCH(
     const updated = await updateTeam(teamId, parsed.data);
     return NextResponse.json({ team: updated });
   } catch (err) {
-    if (err instanceof Error && err.message === 'TEAM_NOT_FOUND') {
+    if (err instanceof Error && err.message === ERR.TEAM_NOT_FOUND) {
       return NextResponse.json({ message: 'Team not found.' }, { status: 404 });
     }
     return NextResponse.json({ message: 'Internal server error.' }, { status: 500 });

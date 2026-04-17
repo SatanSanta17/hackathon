@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 
+import { ERR } from '@/lib/constants/error-codes';
 import { resetPasswordSchema } from '@/lib/validations/auth';
 import { resetPassword } from '@/lib/services/auth-service';
 
@@ -25,7 +26,7 @@ export async function POST(request: Request) {
     });
 
     if (!result.success) {
-      if (result.error === 'INVALID_TOKEN') {
+      if (result.error === ERR.INVALID_TOKEN) {
         return NextResponse.json(
           { message: 'Invalid or expired reset link.' },
           { status: 400 },

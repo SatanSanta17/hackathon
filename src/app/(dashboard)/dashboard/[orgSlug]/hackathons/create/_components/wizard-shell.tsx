@@ -223,6 +223,7 @@ export function WizardShell({
 
         setHackathonId(body.hackathon.id);
         setHackathonData(body.hackathon);
+        setPhasesData(body.phases ?? []);
         showSaveSuccess();
         setCurrentStep(2);
       } catch {
@@ -260,10 +261,13 @@ export function WizardShell({
     }
   }, [currentStep, setCurrentStep]);
 
+  const hackathonStatus = hackathon?.hackathon.status ?? 'draft';
+  const isDraft = hackathonStatus === 'draft';
+
   const handleSaveDraft = useCallback(() => {
-    toast.success('Draft saved successfully.');
+    if (isDraft) toast.success('Draft saved successfully.');
     router.push(`/dashboard/${orgSlug}/hackathons`);
-  }, [orgSlug, router]);
+  }, [isDraft, orgSlug, router]);
 
   // ---------------------------------------------------------------------------
   // Data-driven step completion status
@@ -462,6 +466,7 @@ export function WizardShell({
             prizesData={prizesData}
             templates={templates}
             onNavigateToStep={setCurrentStep}
+            hackathonStatus={hackathonStatus}
           />
         ) : null;
       default:
@@ -582,7 +587,7 @@ export function WizardShell({
             </Button>
             <div className="flex items-center gap-3">
               <Button variant="ghost" onClick={handleSaveDraft}>
-                Save Draft
+                {isDraft ? 'Save Draft' : 'Exit'}
               </Button>
               {/* Steps 2, 4, 5, 6, 8 have their own Save & Continue — hide Next for those and step 9 */}
               {![2, 4, 5, 6, 8, 9].includes(currentStep) && currentStep < 9 && (

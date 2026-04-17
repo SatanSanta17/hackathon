@@ -332,27 +332,31 @@ export function teamInviteExistingUserEmail(params: {
   name: string;
   teamName: string;
   hackathonTitle: string;
-  teamUrl: string;
+  acceptUrl: string;
 }): EmailTemplate {
   return {
-    subject: `You've been added to team "${params.teamName}"`,
+    subject: `You've been invited to join "${params.teamName}"`,
     html: emailLayout(`
       <h1 style="font-size: 24px; font-weight: 700; color: #111; margin: 0 0 16px;">
-        Welcome to the team, ${escapeHtml(params.name)}!
+        You're invited, ${escapeHtml(params.name)}!
       </h1>
       <p style="font-size: 16px; color: #333; line-height: 1.6; margin: 0 0 24px;">
-        You've been added to <strong>${escapeHtml(params.teamName)}</strong> for <strong>${escapeHtml(params.hackathonTitle)}</strong>. You can leave the team from your team page if you'd like.
+        You've been invited to join <strong>${escapeHtml(params.teamName)}</strong> for <strong>${escapeHtml(params.hackathonTitle)}</strong>. Click below to accept the invitation.
       </p>
-      ${ctaButton('View Team', params.teamUrl)}
+      ${ctaButton('Accept Invitation', params.acceptUrl)}
+      <p style="font-size: 13px; color: #999; line-height: 1.6; margin: 16px 0 0;">
+        This invitation expires in 7 days. If you don't want to join, you can ignore this email.
+      </p>
     `),
     text: [
       `Hi ${params.name},`,
       '',
-      `You've been added to "${params.teamName}" for ${params.hackathonTitle}.`,
+      `You've been invited to join "${params.teamName}" for ${params.hackathonTitle}.`,
       '',
-      "You can leave the team from your team page if you'd like.",
+      'Accept the invitation:',
+      params.acceptUrl,
       '',
-      params.teamUrl,
+      'This invitation expires in 7 days.',
       '',
       '— HackForge',
     ].join('\n'),
@@ -386,6 +390,40 @@ export function teamInviteNewUserEmail(params: {
       params.acceptUrl,
       '',
       'This invitation expires in 7 days.',
+      '',
+      '— HackForge',
+    ].join('\n'),
+  };
+}
+
+export function joinRequestReceivedEmail(params: {
+  leadName: string;
+  requesterName: string;
+  teamName: string;
+  hackathonTitle: string;
+  message: string | null;
+  teamUrl: string;
+}): EmailTemplate {
+  return {
+    subject: `${params.requesterName} wants to join "${params.teamName}"`,
+    html: emailLayout(`
+      <h1 style="font-size: 24px; font-weight: 700; color: #111; margin: 0 0 16px;">
+        New join request, ${escapeHtml(params.leadName)}!
+      </h1>
+      <p style="font-size: 16px; color: #333; line-height: 1.6; margin: 0 0 16px;">
+        <strong>${escapeHtml(params.requesterName)}</strong> has requested to join your team <strong>${escapeHtml(params.teamName)}</strong> for <strong>${escapeHtml(params.hackathonTitle)}</strong>.
+      </p>
+      ${params.message ? `<p style="font-size: 16px; color: #333; line-height: 1.6; margin: 0 0 24px;"><strong>Their message:</strong> ${escapeHtml(params.message)}</p>` : '<p style="font-size: 16px; color: #333; line-height: 1.6; margin: 0 0 24px;">They didn\'t leave a message.</p>'}
+      ${ctaButton('Review Request', params.teamUrl)}
+    `),
+    text: [
+      `Hi ${params.leadName},`,
+      '',
+      `${params.requesterName} wants to join your team "${params.teamName}" for ${params.hackathonTitle}.`,
+      ...(params.message ? [``, `Their message: "${params.message}"`] : []),
+      '',
+      'Review and respond to the request:',
+      params.teamUrl,
       '',
       '— HackForge',
     ].join('\n'),

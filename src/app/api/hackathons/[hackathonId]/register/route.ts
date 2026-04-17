@@ -7,6 +7,7 @@ import { users } from '@/db/schema/users';
 import { getEmailService } from '@/lib/email';
 import { registrationConfirmedEmail } from '@/lib/email/templates';
 import { requireVerifiedUser } from '@/lib/auth/require-verified';
+import { ERR } from '@/lib/constants/error-codes';
 import { createRegistration } from '@/lib/services/registration-service';
 import { createRegistrationSchema } from '@/lib/validations/registration';
 
@@ -97,7 +98,7 @@ export async function POST(
 
     return NextResponse.json({ registration }, { status: 201 });
   } catch (err) {
-    if (err instanceof Error && err.message === 'ALREADY_REGISTERED') {
+    if (err instanceof Error && err.message === ERR.ALREADY_REGISTERED) {
       return NextResponse.json({ message: 'Already registered for this hackathon.' }, { status: 409 });
     }
     return NextResponse.json({ message: 'Internal server error.' }, { status: 500 });

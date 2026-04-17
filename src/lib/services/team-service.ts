@@ -14,10 +14,18 @@ import {
 } from '@/db/schema';
 import { getEmailService } from '@/lib/email';
 import {
+  joinRequestAcceptedEmail,
+  joinRequestReceivedEmail,
+  joinRequestRejectedEmail,
   teamApprovedEmail,
+  teamCreatedPendingReviewEmail,
   teamDisbandedAdminEmail,
+  teamInviteExistingUserEmail,
+  teamInviteNewUserEmail,
   teamRejectedEmail,
 } from '@/lib/email/templates';
+import { ERR } from '@/lib/constants/error-codes';
+import { JOIN_REQUEST_STATUS, TEAM_ADMIN_STATUS, TEAM_MEMBER_ROLE } from '@/lib/constants/enums';
 import { autoRegister } from '@/lib/services/registration-service';
 import type { Team, TeamInvite, TeamJoinRequest, TeamMember } from '@/db/schema';
 
@@ -49,15 +57,26 @@ export interface JoinRequestWithUser extends TeamJoinRequest {
 }
 
 // ---------------------------------------------------------------------------
+// Module-level constants
+// ---------------------------------------------------------------------------
+
+const INVITE_CODE_LENGTH = 8;
+const INVITE_CODE_RETRY_ATTEMPTS = 5;
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? '';
+if (!APP_URL) {
+  console.warn('[team-service] NEXT_PUBLIC_APP_URL is not set — email invite links will be broken');
+}
+
+// ---------------------------------------------------------------------------
 // Invite Code
 // ---------------------------------------------------------------------------
 
 const INVITE_CODE_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 
 async function generateUniqueInviteCode(): Promise<string> {
-  for (let attempt = 0; attempt < 5; attempt++) {
+  for (let attempt = 0; attempt < INVITE_CODE_RETRY_ATTEMPTS; attempt++) {
     const code = Array.from(
-      { length: 8 },
+      { length: INVITE_CODE_LENGTH },
       () => INVITE_CODE_CHARS[Math.floor(Math.random() * INVITE_CODE_CHARS.length)],
     ).join('');
 
@@ -69,7 +88,7 @@ async function generateUniqueInviteCode(): Promise<string> {
 
     if (!existing) return code;
   }
-  throw new Error('INVITE_CODE_GENERATION_FAILED');
+  throw new Error(ERR.INVITE_CODE_GENERATION_FAILED);
 }
 
 // ---------------------------------------------------------------------------
@@ -80,13 +99,17 @@ export async function dissolveTeam(
   teamId: string,
   reason: string = 'Team disbanded',
 ): Promise<void> {
+  console.log('[team-service] dissolveTeam:', { teamId, reason });
   const [team] = await db
     .select({ hackathonId: teams.hackathonId, name: teams.name })
     .from(teams)
     .where(and(eq(teams.id, teamId), isNull(teams.deletedAt)))
     .limit(1);
 
-  if (!team) return; // already dissolved
+  if (!team) {
+    console.log('[team-service] dissolveTeam: team not found or already dissolved:', { teamId });
+    return;
+  }
 
   await db.transaction(async (tx) => {
     await tx.delete(teamMembers).where(eq(teamMembers.teamId, teamId));
@@ -130,8 +153,8 @@ export async function dissolveTeam(
         });
       }
     }
-  } catch {
-    // Email failure must not surface — dissolution is already committed
+  } catch (err) {
+    console.error('[team-service] dissolveTeam: email send failed:', err);
   }
 }
 
@@ -149,19 +172,20 @@ export async function createTeam(
     isOpen: boolean;
   },
 ): Promise<Team> {
+  console.log('[team-service] createTeam:', { hackathonId, userId, name: data.name });
   const [hackathon] = await db
-    .select({ requiresApproval: hackathons.requiresApproval })
+    .select({ requiresApproval: hackathons.requiresApproval, title: hackathons.title, slug: hackathons.slug })
     .from(hackathons)
     .where(eq(hackathons.id, hackathonId))
     .limit(1);
 
-  if (!hackathon) throw new Error('HACKATHON_NOT_FOUND');
+  if (!hackathon) throw new Error(ERR.HACKATHON_NOT_FOUND);
 
   const existingTeam = await getUserTeamForHackathon(userId, hackathonId);
-  if (existingTeam) throw new Error('ALREADY_IN_TEAM');
+  if (existingTeam) throw new Error(ERR.ALREADY_IN_TEAM);
 
   const inviteCode = await generateUniqueInviteCode();
-  const adminStatus = hackathon.requiresApproval ? 'pending_review' : 'approved';
+  const adminStatus = hackathon.requiresApproval ? TEAM_ADMIN_STATUS.PENDING_REVIEW : TEAM_ADMIN_STATUS.APPROVED;
   const reviewReason = hackathon.requiresApproval ? 'New team' : null;
 
   const [team] = await db.transaction(async (tx) => {
@@ -183,11 +207,34 @@ export async function createTeam(
     await tx.insert(teamMembers).values({
       teamId: created.id,
       userId,
-      role: 'lead',
+      role: TEAM_MEMBER_ROLE.LEAD,
     });
 
     return [created];
   });
+
+  if (hackathon.requiresApproval) {
+    try {
+      const [lead] = await db
+        .select({ name: users.name, email: users.email })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+      const teamUrl = `${APP_URL}/hackathons/${hackathon.slug}/teams/${team.id}`;
+      const emailService = getEmailService();
+      await emailService.send({
+        to: lead.email,
+        ...teamCreatedPendingReviewEmail({
+          leadName: lead.name,
+          teamName: data.name,
+          hackathonTitle: hackathon.title,
+          teamUrl,
+        }),
+      });
+    } catch (err) {
+      console.error('[team-service] createTeam: email send failed:', err);
+    }
+  }
 
   return team;
 }
@@ -197,6 +244,7 @@ export async function createTeam(
 // ---------------------------------------------------------------------------
 
 export async function getTeamById(teamId: string): Promise<TeamWithMembers | null> {
+  console.log('[team-service] getTeamById:', { teamId });
   const [team] = await db
     .select()
     .from(teams)
@@ -228,7 +276,7 @@ export async function getTeamById(teamId: string): Promise<TeamWithMembers | nul
     .where(
       and(
         eq(teamJoinRequests.teamId, teamId),
-        eq(teamJoinRequests.status, 'pending'),
+        eq(teamJoinRequests.status, JOIN_REQUEST_STATUS.PENDING),
       ),
     );
 
@@ -248,6 +296,7 @@ export async function getTeamById(teamId: string): Promise<TeamWithMembers | nul
 }
 
 export async function getTeamByInviteCode(inviteCode: string): Promise<Team | null> {
+  console.log('[team-service] getTeamByInviteCode:', { inviteCode });
   const [team] = await db
     .select()
     .from(teams)
@@ -260,13 +309,14 @@ export async function getTeamByInviteCode(inviteCode: string): Promise<Team | nu
 export async function getTeamsByHackathon(
   hackathonId: string,
   filters: {
-    isAdmin?: boolean;
+    isAdmin?: boolean; // when true, skips the isOpen/capacity filters so admins see all teams
     trackId?: string;
     isOpen?: boolean;
     adminStatus?: string;
     maxSize?: number;
   } = {},
 ): Promise<TeamBrowseItem[]> {
+  console.log('[team-service] getTeamsByHackathon:', { hackathonId, filters });
   const rows = await db
     .select({
       id: teams.id,
@@ -312,6 +362,7 @@ export async function getUserTeamForHackathon(
   userId: string,
   hackathonId: string,
 ): Promise<Team | null> {
+  console.log('[team-service] getUserTeamForHackathon:', { userId, hackathonId });
   const [row] = await db
     .select({ team: teams })
     .from(teamMembers)
@@ -329,13 +380,14 @@ export async function getUserTeamForHackathon(
 }
 
 export async function getPendingTeams(hackathonId: string): Promise<TeamWithMembers[]> {
+  console.log('[team-service] getPendingTeams:', { hackathonId });
   const pending = await db
     .select({ id: teams.id })
     .from(teams)
     .where(
       and(
         eq(teams.hackathonId, hackathonId),
-        eq(teams.adminStatus, 'pending_review'),
+        eq(teams.adminStatus, TEAM_ADMIN_STATUS.PENDING_REVIEW),
         isNull(teams.deletedAt),
       ),
     );
@@ -351,13 +403,14 @@ export async function updateTeam(
   teamId: string,
   data: Partial<{ name: string; description: string; trackId: string; isOpen: boolean }>,
 ): Promise<Team> {
+  console.log('[team-service] updateTeam:', { teamId, ...data });
   const [row] = await db
     .select({ hackathonId: teams.hackathonId })
     .from(teams)
     .where(eq(teams.id, teamId))
     .limit(1);
 
-  if (!row) throw new Error('TEAM_NOT_FOUND');
+  if (!row) throw new Error(ERR.TEAM_NOT_FOUND);
 
   const [hackathon] = await db
     .select({ requiresApproval: hackathons.requiresApproval })
@@ -372,7 +425,7 @@ export async function updateTeam(
     .set({
       ...data,
       ...(requiresApproval
-        ? { adminStatus: 'pending_review', reviewReason: 'Team profile edited' }
+        ? { adminStatus: TEAM_ADMIN_STATUS.PENDING_REVIEW, reviewReason: 'Team profile edited' }
         : {}),
       updatedAt: new Date(),
     })
@@ -391,16 +444,17 @@ export async function addMember(
   userId: string,
   memberName: string,
 ): Promise<void> {
+  console.log('[team-service] addMember:', { teamId, userId });
   const [team] = await db
     .select({ hackathonId: teams.hackathonId })
     .from(teams)
     .where(and(eq(teams.id, teamId), isNull(teams.deletedAt)))
     .limit(1);
 
-  if (!team) throw new Error('TEAM_NOT_FOUND');
+  if (!team) throw new Error(ERR.TEAM_NOT_FOUND);
 
   const [hackathon] = await db
-    .select({ requiresApproval: hackathons.requiresApproval })
+    .select({ requiresApproval: hackathons.requiresApproval, teamMaxSize: hackathons.teamMaxSize })
     .from(hackathons)
     .where(eq(hackathons.id, team.hackathonId))
     .limit(1);
@@ -411,13 +465,23 @@ export async function addMember(
   await autoRegister(team.hackathonId, userId);
 
   await db.transaction(async (tx) => {
-    await tx.insert(teamMembers).values({ teamId, userId, role: 'member' });
+    // Definitive capacity check inside the transaction — reduces over-enrollment under concurrency
+    if (hackathon && hackathon.teamMaxSize > 0) {
+      const [sizeResult] = await tx
+        .select({ memberCount: count() })
+        .from(teamMembers)
+        .where(eq(teamMembers.teamId, teamId));
+      if ((sizeResult?.memberCount ?? 0) >= hackathon.teamMaxSize) {
+        throw new Error(ERR.TEAM_FULL);
+      }
+    }
+    await tx.insert(teamMembers).values({ teamId, userId, role: TEAM_MEMBER_ROLE.MEMBER });
 
     if (requiresApproval) {
       await tx
         .update(teams)
         .set({
-          adminStatus: 'pending_review',
+          adminStatus: TEAM_ADMIN_STATUS.PENDING_REVIEW,
           reviewReason: `Member added: ${memberName}`,
           updatedAt: new Date(),
         })
@@ -427,13 +491,14 @@ export async function addMember(
 }
 
 export async function removeMember(teamId: string, userId: string): Promise<void> {
+  console.log('[team-service] removeMember:', { teamId, userId });
   const [member] = await db
     .select({ role: teamMembers.role })
     .from(teamMembers)
     .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, userId)))
     .limit(1);
 
-  if (!member) throw new Error('MEMBER_NOT_FOUND');
+  if (!member) throw new Error(ERR.MEMBER_NOT_FOUND);
 
   let isLastMember = false;
 
@@ -442,7 +507,7 @@ export async function removeMember(teamId: string, userId: string): Promise<void
       .delete(teamMembers)
       .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, userId)));
 
-    if (member.role === 'lead') {
+    if (member.role === TEAM_MEMBER_ROLE.LEAD) {
       const [next] = await tx
         .select({ userId: teamMembers.userId })
         .from(teamMembers)
@@ -453,7 +518,7 @@ export async function removeMember(teamId: string, userId: string): Promise<void
       if (next) {
         await tx
           .update(teamMembers)
-          .set({ role: 'lead' })
+          .set({ role: TEAM_MEMBER_ROLE.LEAD })
           .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, next.userId)));
       } else {
         isLastMember = true;
@@ -472,15 +537,16 @@ export async function transferLeadership(
   fromUserId: string,
   toUserId: string,
 ): Promise<void> {
+  console.log('[team-service] transferLeadership:', { teamId, fromUserId, toUserId });
   await db.transaction(async (tx) => {
     await tx
       .update(teamMembers)
-      .set({ role: 'member' })
+      .set({ role: TEAM_MEMBER_ROLE.MEMBER })
       .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, fromUserId)));
 
     await tx
       .update(teamMembers)
-      .set({ role: 'lead' })
+      .set({ role: TEAM_MEMBER_ROLE.LEAD })
       .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, toUserId)));
   });
   // admin_status intentionally NOT changed
@@ -496,6 +562,7 @@ export async function createJoinRequest(
   message: string | null,
   entryPoint: 'browse' | 'link' | 'participant_browse',
 ): Promise<TeamJoinRequest> {
+  console.log('[team-service] createJoinRequest:', { teamId, userId, entryPoint });
   const [existing] = await db
     .select({ id: teamJoinRequests.id })
     .from(teamJoinRequests)
@@ -503,22 +570,64 @@ export async function createJoinRequest(
       and(
         eq(teamJoinRequests.teamId, teamId),
         eq(teamJoinRequests.userId, userId),
-        eq(teamJoinRequests.status, 'pending'),
+        eq(teamJoinRequests.status, JOIN_REQUEST_STATUS.PENDING),
       ),
     )
     .limit(1);
 
-  if (existing) throw new Error('JOIN_REQUEST_ALREADY_PENDING');
+  if (existing) throw new Error(ERR.JOIN_REQUEST_ALREADY_PENDING);
 
   const [request] = await db
     .insert(teamJoinRequests)
     .values({ teamId, userId, message, entryPoint })
     .returning();
 
+  try {
+    const [teamRow] = await db
+      .select({ name: teams.name, hackathonId: teams.hackathonId })
+      .from(teams)
+      .where(eq(teams.id, teamId))
+      .limit(1);
+    const [requester] = await db
+      .select({ name: users.name })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+    if (!teamRow || !requester) return request;
+    const [hackathonRow] = await db
+      .select({ title: hackathons.title, slug: hackathons.slug })
+      .from(hackathons)
+      .where(eq(hackathons.id, teamRow.hackathonId))
+      .limit(1);
+    const [lead] = await db
+      .select({ name: users.name, email: users.email })
+      .from(teamMembers)
+      .innerJoin(users, eq(users.id, teamMembers.userId))
+      .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.role, TEAM_MEMBER_ROLE.LEAD)))
+      .limit(1);
+    if (!hackathonRow || !lead) return request;
+    const teamUrl = `${APP_URL}/hackathons/${hackathonRow.slug}/teams/${teamId}`;
+    const emailService = getEmailService();
+    await emailService.send({
+      to: lead.email,
+      ...joinRequestReceivedEmail({
+        leadName: lead.name,
+        requesterName: requester.name,
+        teamName: teamRow.name,
+        hackathonTitle: hackathonRow.title,
+        message,
+        teamUrl,
+      }),
+    });
+  } catch (err) {
+    console.error('[team-service] createJoinRequest: email send failed:', err);
+  }
+
   return request;
 }
 
 export async function getJoinRequests(teamId: string): Promise<JoinRequestWithUser[]> {
+  console.log('[team-service] getJoinRequests:', { teamId });
   const rows = await db
     .select({
       id: teamJoinRequests.id,
@@ -538,7 +647,7 @@ export async function getJoinRequests(teamId: string): Promise<JoinRequestWithUs
     .where(
       and(
         eq(teamJoinRequests.teamId, teamId),
-        eq(teamJoinRequests.status, 'pending'),
+        eq(teamJoinRequests.status, JOIN_REQUEST_STATUS.PENDING),
       ),
     )
     .orderBy(asc(teamJoinRequests.requestedAt));
@@ -561,14 +670,15 @@ export async function respondToJoinRequest(
   status: 'accepted' | 'rejected',
   hackathonMaxSize: number,
 ): Promise<void> {
+  console.log('[team-service] respondToJoinRequest:', { requestId, status });
   const [request] = await db
     .select()
     .from(teamJoinRequests)
     .where(eq(teamJoinRequests.id, requestId))
     .limit(1);
 
-  if (!request) throw new Error('REQUEST_NOT_FOUND');
-  if (request.status !== 'pending') throw new Error('REQUEST_ALREADY_RESOLVED');
+  if (!request) throw new Error(ERR.REQUEST_NOT_FOUND);
+  if (request.status !== JOIN_REQUEST_STATUS.PENDING) throw new Error(ERR.REQUEST_ALREADY_RESOLVED);
 
   if (status === 'accepted') {
     const [sizeResult] = await db
@@ -576,10 +686,10 @@ export async function respondToJoinRequest(
       .from(teamMembers)
       .where(eq(teamMembers.teamId, request.teamId));
 
-    if ((sizeResult?.memberCount ?? 0) >= hackathonMaxSize) throw new Error('TEAM_FULL');
+    if ((sizeResult?.memberCount ?? 0) >= hackathonMaxSize) throw new Error(ERR.TEAM_FULL);
 
     const [user] = await db
-      .select({ name: users.name })
+      .select({ name: users.name, email: users.email })
       .from(users)
       .where(eq(users.id, request.userId))
       .limit(1);
@@ -589,8 +699,38 @@ export async function respondToJoinRequest(
 
     await db
       .update(teamJoinRequests)
-      .set({ status: 'accepted', updatedAt: new Date() })
+      .set({ status: JOIN_REQUEST_STATUS.ACCEPTED, updatedAt: new Date() })
       .where(eq(teamJoinRequests.id, requestId));
+
+    try {
+      const [teamRow] = await db
+        .select({ name: teams.name, hackathonId: teams.hackathonId })
+        .from(teams)
+        .where(eq(teams.id, request.teamId))
+        .limit(1);
+      if (teamRow && user) {
+        const [hackathonRow] = await db
+          .select({ title: hackathons.title, slug: hackathons.slug })
+          .from(hackathons)
+          .where(eq(hackathons.id, teamRow.hackathonId))
+          .limit(1);
+        if (hackathonRow) {
+          const teamUrl = `${APP_URL}/hackathons/${hackathonRow.slug}/teams/${request.teamId}`;
+          const emailService = getEmailService();
+          await emailService.send({
+            to: user.email,
+            ...joinRequestAcceptedEmail({
+              name: user.name,
+              teamName: teamRow.name,
+              hackathonTitle: hackathonRow.title,
+              teamUrl,
+            }),
+          });
+        }
+      }
+    } catch (err) {
+      console.error('[team-service] respondToJoinRequest: accepted email send failed:', err);
+    }
 
     // Auto-reject remaining pending requests if team is now full
     const [newSizeResult] = await db
@@ -601,11 +741,11 @@ export async function respondToJoinRequest(
     if ((newSizeResult?.memberCount ?? 0) >= hackathonMaxSize) {
       await db
         .update(teamJoinRequests)
-        .set({ status: 'rejected', updatedAt: new Date() })
+        .set({ status: JOIN_REQUEST_STATUS.REJECTED, updatedAt: new Date() })
         .where(
           and(
             eq(teamJoinRequests.teamId, request.teamId),
-            eq(teamJoinRequests.status, 'pending'),
+            eq(teamJoinRequests.status, JOIN_REQUEST_STATUS.PENDING),
             ne(teamJoinRequests.id, requestId),
           ),
         );
@@ -613,8 +753,43 @@ export async function respondToJoinRequest(
   } else {
     await db
       .update(teamJoinRequests)
-      .set({ status: 'rejected', updatedAt: new Date() })
+      .set({ status: JOIN_REQUEST_STATUS.REJECTED, updatedAt: new Date() })
       .where(eq(teamJoinRequests.id, requestId));
+
+    try {
+      const [userData] = await db
+        .select({ name: users.name, email: users.email })
+        .from(users)
+        .where(eq(users.id, request.userId))
+        .limit(1);
+      const [teamRow] = await db
+        .select({ name: teams.name, hackathonId: teams.hackathonId })
+        .from(teams)
+        .where(eq(teams.id, request.teamId))
+        .limit(1);
+      if (userData && teamRow) {
+        const [hackathonRow] = await db
+          .select({ title: hackathons.title, slug: hackathons.slug })
+          .from(hackathons)
+          .where(eq(hackathons.id, teamRow.hackathonId))
+          .limit(1);
+        if (hackathonRow) {
+          const browseUrl = `${APP_URL}/hackathons/${hackathonRow.slug}/teams`;
+          const emailService = getEmailService();
+          await emailService.send({
+            to: userData.email,
+            ...joinRequestRejectedEmail({
+              name: userData.name,
+              teamName: teamRow.name,
+              hackathonTitle: hackathonRow.title,
+              browseUrl,
+            }),
+          });
+        }
+      }
+    } catch (err) {
+      console.error('[team-service] respondToJoinRequest: rejected email send failed:', err);
+    }
   }
 }
 
@@ -626,18 +801,35 @@ export async function inviteMemberByEmail(
   teamId: string,
   invitedByUserId: string,
   email: string,
-): Promise<{ type: 'direct' | 'invite'; userId?: string }> {
-  const [existingUser] = await db
-    .select({ id: users.id, name: users.name })
-    .from(users)
-    .where(eq(users.email, email))
-    .limit(1);
+): Promise<void> {
+  console.log('[team-service] inviteMemberByEmail:', { teamId, invitedByUserId, email });
 
-  if (existingUser) {
-    // addMember calls autoRegister internally
-    await addMember(teamId, existingUser.id, existingUser.name);
-    return { type: 'direct', userId: existingUser.id };
-  }
+  const [teamRow] = await db
+    .select({ name: teams.name, hackathonId: teams.hackathonId })
+    .from(teams)
+    .where(eq(teams.id, teamId))
+    .limit(1);
+  const [hackathonRow] = teamRow
+    ? await db
+        .select({ title: hackathons.title, slug: hackathons.slug })
+        .from(hackathons)
+        .where(eq(hackathons.id, teamRow.hackathonId))
+        .limit(1)
+    : [];
+
+  // Block duplicate pending invites for the same (teamId, email)
+  const [existingInvite] = await db
+    .select({ id: teamInvites.id })
+    .from(teamInvites)
+    .where(
+      and(
+        eq(teamInvites.teamId, teamId),
+        eq(teamInvites.email, email),
+        isNull(teamInvites.acceptedAt),
+      ),
+    )
+    .limit(1);
+  if (existingInvite) return;
 
   const rawToken = crypto.randomBytes(32).toString('hex');
   const hashedToken = crypto.createHash('sha256').update(rawToken).digest('hex');
@@ -651,13 +843,48 @@ export async function inviteMemberByEmail(
     expiresAt,
   });
 
-  // rawToken must be sent to the caller so it can be included in the email link
-  return { type: 'invite' };
+  const acceptUrl = `${APP_URL}/team-invites/accept?token=${rawToken}`;
+
+  const [existingUser] = await db
+    .select({ name: users.name })
+    .from(users)
+    .where(eq(users.email, email))
+    .limit(1);
+
+  try {
+    if (teamRow && hackathonRow) {
+      const emailService = getEmailService();
+      if (existingUser) {
+        await emailService.send({
+          to: email,
+          ...teamInviteExistingUserEmail({
+            name: existingUser.name,
+            teamName: teamRow.name,
+            hackathonTitle: hackathonRow.title,
+            acceptUrl,
+          }),
+        });
+      } else {
+        await emailService.send({
+          to: email,
+          ...teamInviteNewUserEmail({
+            teamName: teamRow.name,
+            hackathonTitle: hackathonRow.title,
+            acceptUrl,
+          }),
+        });
+      }
+    }
+  } catch (err) {
+    console.error('[team-service] inviteMemberByEmail: email send failed:', err);
+  }
 }
 
 export async function acceptTeamInvite(
   rawToken: string,
+  authenticatedUserId: string,
 ): Promise<{ teamId: string; userId: string }> {
+  console.log('[team-service] acceptTeamInvite:', { authenticatedUserId });
   const hashedToken = crypto.createHash('sha256').update(rawToken).digest('hex');
 
   const [invite] = await db
@@ -666,9 +893,9 @@ export async function acceptTeamInvite(
     .where(eq(teamInvites.token, hashedToken))
     .limit(1);
 
-  if (!invite) throw new Error('INVITE_NOT_FOUND');
-  if (invite.acceptedAt) throw new Error('INVITE_ALREADY_USED');
-  if (invite.expiresAt < new Date()) throw new Error('INVITE_EXPIRED');
+  if (!invite) throw new Error(ERR.INVITE_NOT_FOUND);
+  if (invite.acceptedAt) throw new Error(ERR.INVITE_ALREADY_USED);
+  if (invite.expiresAt < new Date()) throw new Error(ERR.INVITE_EXPIRED);
 
   const [user] = await db
     .select({ id: users.id, name: users.name })
@@ -676,7 +903,23 @@ export async function acceptTeamInvite(
     .where(eq(users.email, invite.email))
     .limit(1);
 
-  if (!user) throw new Error('USER_NOT_FOUND');
+  if (!user) throw new Error(ERR.USER_NOT_FOUND);
+  if (user.id !== authenticatedUserId) throw new Error(ERR.INVITE_EMAIL_MISMATCH);
+
+  // Capacity check — team may have filled between invite creation and acceptance
+  const [hackathonRow] = await db
+    .select({ teamMaxSize: hackathons.teamMaxSize })
+    .from(hackathons)
+    .innerJoin(teams, eq(teams.hackathonId, hackathons.id))
+    .where(eq(teams.id, invite.teamId))
+    .limit(1);
+  const [sizeResult] = await db
+    .select({ memberCount: count() })
+    .from(teamMembers)
+    .where(eq(teamMembers.teamId, invite.teamId));
+  if (hackathonRow && (sizeResult?.memberCount ?? 0) >= hackathonRow.teamMaxSize) {
+    throw new Error(ERR.TEAM_FULL);
+  }
 
   // addMember calls autoRegister internally
   await addMember(invite.teamId, user.id, user.name);
@@ -694,9 +937,10 @@ export async function acceptTeamInvite(
 // ---------------------------------------------------------------------------
 
 export async function approveTeam(teamId: string): Promise<void> {
+  console.log('[team-service] approveTeam:', { teamId });
   await db
     .update(teams)
-    .set({ adminStatus: 'approved', reviewReason: null, updatedAt: new Date() })
+    .set({ adminStatus: TEAM_ADMIN_STATUS.APPROVED, reviewReason: null, updatedAt: new Date() })
     .where(eq(teams.id, teamId));
 
   // Send approval emails outside the update so email failure cannot roll back the status change
@@ -707,7 +951,10 @@ export async function approveTeam(teamId: string): Promise<void> {
       .where(eq(teams.id, teamId))
       .limit(1);
 
-    if (!teamRow) return;
+    if (!teamRow) {
+      console.warn('[team-service] approveTeam: team not found post-update, skipping emails:', { teamId });
+      return;
+    }
 
     const [hackathon] = await db
       .select({ title: hackathons.title, slug: hackathons.slug })
@@ -715,7 +962,10 @@ export async function approveTeam(teamId: string): Promise<void> {
       .where(eq(hackathons.id, teamRow.hackathonId))
       .limit(1);
 
-    if (!hackathon) return;
+    if (!hackathon) {
+      console.warn('[team-service] approveTeam: hackathon not found, skipping emails:', { hackathonId: teamRow.hackathonId });
+      return;
+    }
 
     const members = await db
       .select({ name: users.name, email: users.email })
@@ -723,8 +973,7 @@ export async function approveTeam(teamId: string): Promise<void> {
       .innerJoin(users, eq(users.id, teamMembers.userId))
       .where(eq(teamMembers.teamId, teamId));
 
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? '';
-    const teamUrl = `${appUrl}/hackathons/${hackathon.slug}/teams/${teamId}`;
+    const teamUrl = `${APP_URL}/hackathons/${hackathon.slug}/teams/${teamId}`;
     const emailService = getEmailService();
 
     for (const member of members) {
@@ -738,15 +987,16 @@ export async function approveTeam(teamId: string): Promise<void> {
         }),
       });
     }
-  } catch {
-    // Email failure must not surface
+  } catch (err) {
+    console.error('[team-service] approveTeam: email send failed:', err);
   }
 }
 
 export async function rejectTeam(teamId: string): Promise<void> {
+  console.log('[team-service] rejectTeam:', { teamId });
   await db
     .update(teams)
-    .set({ adminStatus: 'rejected', updatedAt: new Date() })
+    .set({ adminStatus: TEAM_ADMIN_STATUS.REJECTED, updatedAt: new Date() })
     .where(eq(teams.id, teamId));
 
   try {
@@ -756,7 +1006,10 @@ export async function rejectTeam(teamId: string): Promise<void> {
       .where(eq(teams.id, teamId))
       .limit(1);
 
-    if (!teamRow) return;
+    if (!teamRow) {
+      console.warn('[team-service] rejectTeam: team not found post-update, skipping emails:', { teamId });
+      return;
+    }
 
     const [hackathon] = await db
       .select({ title: hackathons.title, orgId: hackathons.orgId })
@@ -764,16 +1017,22 @@ export async function rejectTeam(teamId: string): Promise<void> {
       .where(eq(hackathons.id, teamRow.hackathonId))
       .limit(1);
 
-    if (!hackathon) return;
+    if (!hackathon) {
+      console.warn('[team-service] rejectTeam: hackathon not found, skipping emails:', { hackathonId: teamRow.hackathonId });
+      return;
+    }
 
     const [leadRow] = await db
       .select({ name: users.name, email: users.email })
       .from(teamMembers)
       .innerJoin(users, eq(users.id, teamMembers.userId))
-      .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.role, 'lead')))
+      .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.role, TEAM_MEMBER_ROLE.LEAD)))
       .limit(1);
 
-    if (!leadRow) return;
+    if (!leadRow) {
+      console.warn('[team-service] rejectTeam: lead not found, skipping emails:', { teamId });
+      return;
+    }
 
     const [adminRow] = await db
       .select({ email: users.email })
@@ -798,8 +1057,8 @@ export async function rejectTeam(teamId: string): Promise<void> {
         organizerEmail: adminRow?.email ?? (process.env.FROM_EMAIL ?? ''),
       }),
     });
-  } catch {
-    // Email failure must not surface
+  } catch (err) {
+    console.error('[team-service] rejectTeam: email send failed:', err);
   }
 }
 
@@ -832,6 +1091,7 @@ export interface TeamProfileData {
 }
 
 export async function getTeamWithMembers(teamId: string): Promise<TeamProfileData | null> {
+  console.log('[team-service] getTeamWithMembers:', { teamId });
   const [row] = await db
     .select({ team: teams, trackName: tracks.name })
     .from(teams)
@@ -882,6 +1142,7 @@ export interface JoinRequestForTeam {
 }
 
 export async function getJoinRequestsForTeam(teamId: string): Promise<JoinRequestForTeam[]> {
+  console.log('[team-service] getJoinRequestsForTeam:', { teamId });
   return db
     .select({
       id: teamJoinRequests.id,
@@ -897,7 +1158,7 @@ export async function getJoinRequestsForTeam(teamId: string): Promise<JoinReques
     .where(
       and(
         eq(teamJoinRequests.teamId, teamId),
-        eq(teamJoinRequests.status, 'pending'),
+        eq(teamJoinRequests.status, JOIN_REQUEST_STATUS.PENDING),
       ),
     )
     .orderBy(asc(teamJoinRequests.requestedAt));
@@ -928,6 +1189,7 @@ export async function getAllTeamsForHackathon(
     adminStatus?: 'pending_review' | 'approved' | 'rejected';
   },
 ): Promise<AdminTeamRow[]> {
+  console.log('[team-service] getAllTeamsForHackathon:', { hackathonId, filters });
   const conditions = [eq(teams.hackathonId, hackathonId), isNull(teams.deletedAt)];
   if (filters?.trackId) conditions.push(eq(teams.trackId, filters.trackId));
   if (filters?.isOpen !== undefined) conditions.push(eq(teams.isOpen, filters.isOpen));
@@ -964,7 +1226,7 @@ export async function getAllTeamsForHackathon(
 
   return teamRows.map((team) => {
     const members = memberRows.filter((m) => m.teamId === team.id);
-    const lead = members.find((m) => m.role === 'lead');
+    const lead = members.find((m) => m.role === TEAM_MEMBER_ROLE.LEAD);
     return {
       id: team.id,
       name: team.name,
@@ -981,6 +1243,7 @@ export async function getAllTeamsForHackathon(
 }
 
 export async function getTeamInviteByToken(token: string): Promise<{
+  // Note: token is the raw token (not hashed) — hashing happens inside this function
   id: string;
   email: string;
   expiresAt: Date;
@@ -989,6 +1252,7 @@ export async function getTeamInviteByToken(token: string): Promise<{
   hackathonTitle: string;
   hackathonSlug: string;
 } | null> {
+  console.log('[team-service] getTeamInviteByToken');
   const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
   const [row] = await db
     .select({

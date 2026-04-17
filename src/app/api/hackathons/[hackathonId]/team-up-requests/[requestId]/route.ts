@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 import { db } from '@/db';
 import { teamUpRequests } from '@/db/schema';
 import { requireVerifiedUser } from '@/lib/auth/require-verified';
+import { ERR } from '@/lib/constants/error-codes';
 import { respondToTeamUpRequest } from '@/lib/services/team-up-service';
 import { respondToTeamUpRequestSchema } from '@/lib/validations/team-up';
 
@@ -53,10 +54,10 @@ export async function PATCH(
     return NextResponse.json({ ...result, status: parsed.data.status });
   } catch (err) {
     if (err instanceof Error) {
-      if (err.message === 'REQUEST_NOT_FOUND' || err.message === 'REQUEST_ALREADY_RESOLVED') {
+      if (err.message === ERR.REQUEST_NOT_FOUND || err.message === ERR.REQUEST_ALREADY_RESOLVED) {
         return NextResponse.json({ message: 'Request not found or already resolved.' }, { status: 404 });
       }
-      if (err.message === 'FROM_USER_ALREADY_IN_TEAM' || err.message === 'TO_USER_ALREADY_IN_TEAM') {
+      if (err.message === ERR.FROM_USER_ALREADY_IN_TEAM || err.message === ERR.TO_USER_ALREADY_IN_TEAM) {
         return NextResponse.json(
           { message: 'One or both users are now on a team.' },
           { status: 400 },

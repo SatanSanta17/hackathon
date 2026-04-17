@@ -21,6 +21,8 @@ interface LandingHeroProps {
   ctaState: CtaState;
   hackathonSlug: string;
   registrationFields: RegistrationField[];
+  userName: string | null;
+  userEmail: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -38,6 +40,8 @@ export function LandingHero({
   ctaState,
   hackathonSlug,
   registrationFields,
+  userName,
+  userEmail,
 }: LandingHeroProps) {
 
   return (
@@ -94,6 +98,8 @@ export function LandingHero({
             hackathonTitle={title}
             hackathonStatus={status}
             registrationFields={registrationFields}
+            userName={userName}
+            userEmail={userEmail}
           />
 
           <ShareButtons title={title} pageUrl={pageUrl} />

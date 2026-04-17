@@ -6,7 +6,8 @@ import { users } from '@/db/schema';
 import { createToken, validateToken, markTokenUsed, invalidateTokens } from './token-service';
 import { getEmailService } from '@/lib/email';
 import { verificationEmail, passwordResetEmail } from '@/lib/email/templates';
-import { AUTH_CONSTANTS } from '@/lib/auth/constants';
+import { AUTH_CONSTANTS, TOKEN_TYPE } from '@/lib/auth/constants';
+import { ERR } from '@/lib/constants/error-codes';
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL!;
 
@@ -34,7 +35,7 @@ export async function signUp(params: {
 
     if (existingUser) {
       console.log('[auth-service] signUp failed: email already exists');
-      return { success: false, error: 'EMAIL_EXISTS' };
+      return { success: false, error: ERR.EMAIL_EXISTS };
     }
 
     // 2. Hash password
@@ -53,7 +54,7 @@ export async function signUp(params: {
     // 4. Create verification token
     const rawToken = await createToken({
       userId: newUser.id,
-      type: 'email_verification',
+      type: TOKEN_TYPE.EMAIL_VERIFICATION,
       expiresInMinutes: AUTH_CONSTANTS.EMAIL_VERIFICATION_EXPIRY_MINUTES,
     });
 
@@ -92,12 +93,12 @@ export async function verifyEmail(params: {
   try {
     const result = await validateToken({
       rawToken: params.token,
-      type: 'email_verification',
+      type: TOKEN_TYPE.EMAIL_VERIFICATION,
     });
 
     if (!result.valid || !result.userId || !result.tokenId) {
       console.log('[auth-service] verifyEmail: invalid or expired token');
-      return { success: false, error: 'INVALID_TOKEN' };
+      return { success: false, error: ERR.INVALID_TOKEN };
     }
 
     // Set emailVerified = true
@@ -142,12 +143,12 @@ export async function requestPasswordReset(params: {
     }
 
     // Invalidate old reset tokens
-    await invalidateTokens({ userId: user.id, type: 'password_reset' });
+    await invalidateTokens({ userId: user.id, type: TOKEN_TYPE.PASSWORD_RESET });
 
     // Create new token
     const rawToken = await createToken({
       userId: user.id,
-      type: 'password_reset',
+      type: TOKEN_TYPE.PASSWORD_RESET,
       expiresInMinutes: AUTH_CONSTANTS.PASSWORD_RESET_EXPIRY_MINUTES,
     });
 
@@ -186,12 +187,12 @@ export async function resetPassword(params: {
   try {
     const result = await validateToken({
       rawToken: params.token,
-      type: 'password_reset',
+      type: TOKEN_TYPE.PASSWORD_RESET,
     });
 
     if (!result.valid || !result.userId || !result.tokenId) {
       console.log('[auth-service] resetPassword: invalid or expired token');
-      return { success: false, error: 'INVALID_TOKEN' };
+      return { success: false, error: ERR.INVALID_TOKEN };
     }
 
     // Hash new password
@@ -207,7 +208,7 @@ export async function resetPassword(params: {
     await markTokenUsed(result.tokenId);
 
     // Invalidate all other reset tokens for this user
-    await invalidateTokens({ userId: result.userId, type: 'password_reset' });
+    await invalidateTokens({ userId: result.userId, type: TOKEN_TYPE.PASSWORD_RESET });
 
     console.log('[auth-service] resetPassword successful:', { userId: result.userId });
     return { success: true };
@@ -239,21 +240,21 @@ export async function resendVerificationEmail(params: {
 
     if (!user) {
       console.log('[auth-service] resendVerificationEmail: user not found');
-      return { success: false, error: 'USER_NOT_FOUND' };
+      return { success: false, error: ERR.USER_NOT_FOUND };
     }
 
     if (user.emailVerified) {
       console.log('[auth-service] resendVerificationEmail: already verified');
-      return { success: false, error: 'ALREADY_VERIFIED' };
+      return { success: false, error: ERR.ALREADY_VERIFIED };
     }
 
     // Invalidate old verification tokens
-    await invalidateTokens({ userId: user.id, type: 'email_verification' });
+    await invalidateTokens({ userId: user.id, type: TOKEN_TYPE.EMAIL_VERIFICATION });
 
     // Create new token
     const rawToken = await createToken({
       userId: user.id,
-      type: 'email_verification',
+      type: TOKEN_TYPE.EMAIL_VERIFICATION,
       expiresInMinutes: AUTH_CONSTANTS.EMAIL_VERIFICATION_EXPIRY_MINUTES,
     });
 
@@ -264,7 +265,7 @@ export async function resendVerificationEmail(params: {
 
     if (!emailResult.success) {
       console.error('[auth-service] resendVerificationEmail: email failed:', emailResult.error);
-      return { success: false, error: 'EMAIL_FAILED' };
+      return { success: false, error: ERR.EMAIL_FAILED };
     }
 
     console.log('[auth-service] resendVerificationEmail successful:', { userId: user.id });

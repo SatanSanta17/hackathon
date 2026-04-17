@@ -160,14 +160,11 @@ export default async function HackathonLandingPage({ params }: PageProps) {
   const registrationFields = await getRegistrationFields(hackathon.id);
 
   function isRegOpen(): boolean {
+    if (hackathon.status === 'completed' || hackathon.status === 'archived') return false;
     const reg = sortedPhases.find((p) => p.type === 'registration');
-    if (!reg) return hackathon.status === 'published';
+    if (!reg?.startDate || !reg?.endDate) return hackathon.status === 'published';
     const now = new Date();
-    const start = reg.startDate ? new Date(reg.startDate) : null;
-    const end = reg.endDate ? new Date(reg.endDate) : null;
-    if (start && now < start) return false;
-    if (end && now > end) return false;
-    return hackathon.status === 'published';
+    return now >= new Date(reg.startDate) && now <= new Date(reg.endDate);
   }
 
   let ctaState: CtaState;
@@ -214,6 +211,8 @@ export default async function HackathonLandingPage({ params }: PageProps) {
           ctaState={ctaState}
           hackathonSlug={slug}
           registrationFields={registrationFields}
+          userName={session?.user?.name ?? null}
+          userEmail={session?.user?.email ?? null}
         />
 
         {hackathon.description && (

@@ -57,6 +57,7 @@ interface StepReviewProps {
   prizesData: Prize[];
   templates: HackathonTemplate[];
   onNavigateToStep: (step: number) => void;
+  hackathonStatus?: string;
   className?: string;
 }
 
@@ -80,8 +81,10 @@ export function StepReview({
   prizesData,
   templates,
   onNavigateToStep,
+  hackathonStatus = 'draft',
   className,
 }: StepReviewProps) {
+  const isDraft = hackathonStatus === 'draft';
   const router = useRouter();
   const [isPublishing, setIsPublishing] = useState(false);
 
@@ -188,14 +191,14 @@ export function StepReview({
   return (
     <div className={cn('space-y-6', className)}>
       <div>
-        <h2 className="text-lg font-semibold">Review & Publish</h2>
+        <h2 className="text-lg font-semibold">{isDraft ? 'Review & Publish' : 'Review'}</h2>
         <p className="text-sm text-muted-foreground">
-          Review all your hackathon details before publishing.
+          {isDraft ? 'Review all your hackathon details before publishing.' : 'Review your hackathon details.'}
         </p>
       </div>
 
-      {/* Validation issues banner */}
-      {validationIssues.length > 0 && (
+      {/* Validation issues banner — only relevant when publishing */}
+      {isDraft && validationIssues.length > 0 && (
         <div className="space-y-2 rounded-lg border border-destructive/50 bg-destructive/5 p-4">
           <p className="text-sm font-medium text-destructive">
             Please fix the following before publishing:
@@ -365,15 +368,20 @@ export function StepReview({
 
       {/* Action buttons */}
       <div className="flex items-center justify-end gap-3 border-t pt-4">
-        <Button variant="outline" onClick={handleSaveDraft}>
-          Save as Draft
-        </Button>
-        <Button
-          onClick={handlePublish}
-          disabled={!canPublish || isPublishing}
-        >
-          {isPublishing ? 'Publishing...' : 'Publish Hackathon'}
-        </Button>
+        {isDraft ? (
+          <>
+            <Button variant="outline" onClick={handleSaveDraft}>
+              Save as Draft
+            </Button>
+            <Button onClick={handlePublish} disabled={!canPublish || isPublishing}>
+              {isPublishing ? 'Publishing...' : 'Publish Hackathon'}
+            </Button>
+          </>
+        ) : (
+          <Button variant="outline" onClick={handleSaveDraft}>
+            Done
+          </Button>
+        )}
       </div>
     </div>
   );

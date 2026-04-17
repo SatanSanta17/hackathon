@@ -4,7 +4,7 @@ export const createTeamSchema = z.object({
   name: z.string().min(1, 'Team name is required').max(100),
   description: z.string().max(500).optional(),
   trackId: z.string().uuid().optional(),
-  isOpen: z.boolean().default(true),
+  isOpen: z.boolean(),
 });
 
 export const updateTeamSchema = createTeamSchema.partial();

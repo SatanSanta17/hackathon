@@ -1,3 +1,8 @@
+export const TOKEN_TYPE = {
+  EMAIL_VERIFICATION: 'email_verification',
+  PASSWORD_RESET: 'password_reset',
+} as const;
+
 export const AUTH_CONSTANTS = {
   /** bcrypt cost factor for password hashing */
   BCRYPT_COST: 12,
