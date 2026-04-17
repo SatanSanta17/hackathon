@@ -6,6 +6,38 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Phase 3, Post-Audit Hardening (April 18, 2026)
+
+#### Security
+- `acceptTeamInvite` now requires `authenticatedUserId`; throws `ERR.INVITE_EMAIL_MISMATCH` (→ 403) if the logged-in account's email does not match the invite recipient — prevents one user from accepting an invite intended for another
+- `INVITE_ALREADY_USED` mapped to 409 (was 400) — conflict, not bad input
+
+#### Correctness
+- `addMember` performs a capacity count inside the write transaction before inserting, making the team-full check the definitive guard under concurrency (reduces TOCTOU window vs. pre-transaction check)
+- `as any` casts removed from `zodResolver` in `CreateTeamModal` and `EditTeamDialog`; `z.boolean().default(true)` changed to `z.boolean()` (form `defaultValues` already supplies the default); components now import `CreateTeamInput`/`UpdateTeamInput` from `@/lib/validations/team` instead of redefining them locally
+- Raw `adminStatus` string literals in `TeamProfileClient` status alert replaced with `TEAM_ADMIN_STATUS` constants
+- `entryPoint="browse"` replaced with `JOIN_ENTRY_POINT.BROWSE` in `TeamBrowseCard` and `TeamProfileClient`
+- `entryPointLabel()` refactored from an if-chain to a `ENTRY_POINT_LABELS` record map
+
+#### Observability
+- All 11 email `catch {}` blocks across `team-service.ts` and `team-up-service.ts` now log `console.error` with service/function context — silent email failures are forbidden
+- Early returns inside try blocks in `approveTeam`, `rejectTeam`, and `dissolveTeam` now `console.warn` before returning
+- Entry `console.log` added to all read-only service functions (`getTeamById`, `getTeamByInviteCode`, `getUserTeamForHackathon`, `getPendingTeams`, `getTeamWithMembers`, `getJoinRequests`, `getJoinRequestsForTeam`, `getAllTeamsForHackathon`, `getTeamInviteByToken`)
+
+#### Constants & DRY
+- New `src/lib/constants/error-codes.ts` — `ERR` object with all error code strings; `INVITE_EMAIL_MISMATCH` added
+- New `src/lib/constants/enums.ts` — typed const mirrors of DB enum values (`HACKATHON_STATUS`, `TEAM_ADMIN_STATUS`, `JOIN_REQUEST_STATUS`, `TEAM_MEMBER_ROLE`, `JOIN_ENTRY_POINT`, etc.)
+- Module-level `APP_URL` constant in both `team-service.ts` and `team-up-service.ts` with startup `console.warn` if unset; all inline `process.env.NEXT_PUBLIC_APP_URL ?? ''` usages replaced
+- `INVITE_CODE_LENGTH = 8` and `INVITE_CODE_RETRY_ATTEMPTS = 5` extracted as named constants in `team-service.ts`
+- Redundant `toUser` DB fetch removed from `respondToTeamUpRequest` accepted-email block (was re-fetching a result already available in outer scope)
+
+#### UI
+- Team browse cards: "Already on a Team" disabled button hidden for other teams; own team card shows "View Team" outline button (redirects to team profile)
+- Track selection is mandatory during team creation (pre-selects first track, "No track" option removed); optional during editing
+- Edit team dialog pre-populates the existing track via `defaultValues` and `useEffect` reset
+
+---
+
 ### Phase 3, Part 4: Registration + Team Formation — Admin Approval + Dashboard Views (April 18, 2026)
 
 #### Added

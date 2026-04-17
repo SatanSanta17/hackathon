@@ -81,7 +81,7 @@ Blank line between each group.
 
 - **Strict mode is enabled.** No `any` types unless absolutely unavoidable and documented with a comment explaining why.
 - **Props use interfaces, not types.** Define `interface ComponentProps { ... }` above the component. Always include `className?: string` for composability.
-- **Zod for validation, infer for types.** Forms use `z.object()` schemas with `type FormFields = z.infer<typeof schema>`. Never duplicate types manually when Zod can infer them.
+- **Zod for validation, infer for types.** Forms use `z.object()` schemas with `type FormFields = z.infer<typeof schema>`. Never duplicate types manually when Zod can infer them. Import the inferred type from the validation file — never redefine it locally in a component.
 - **Discriminated unions for state machines.** Use `type HackathonStatus = 'draft' | 'published' | 'active' | 'judging' | 'completed'` — never booleans for multi-state flows.
 - **Error narrowing.** Always use `err instanceof Error ? err.message : 'Something went wrong'` in catch blocks. Never assume `err` is an Error.
 - **Prefer `satisfies` over `as`.** Use `const config = { ... } satisfies Config` for type-safe object literals. Reserve `as` for genuinely narrowing an unknown type, never to silence errors.
@@ -152,13 +152,32 @@ Blank line between each group.
 
 ---
 
+## Constants Patterns
+
+### Error Codes
+All error code strings are defined in `src/lib/constants/error-codes.ts` as the `ERR` object. Services `throw new Error(ERR.SOME_CODE)` and API routes catch them and map to HTTP responses. Never write raw string literals like `throw new Error('TEAM_NOT_FOUND')` — always use an `ERR.*` constant on both the throw and catch sides.
+
+### Enum Mirrors
+TypeScript-typed mirrors of DB enum values live in `src/lib/constants/enums.ts`. Use these in all service comparisons, query filters, and UI conditionals. Never write raw string literals like `team.adminStatus === 'pending_review'` — always use the constant (`TEAM_ADMIN_STATUS.PENDING_REVIEW`).
+
+---
+
 ## Error Handling Patterns
 
-1. **API routes** return appropriate HTTP status codes with `{ message: string }` JSON bodies. They catch errors from services and translate them to HTTP responses.
-2. **Service functions** throw typed errors or return error objects. They never import HTTP-specific constructs.
+1. **API routes** return appropriate HTTP status codes with `{ message: string }` JSON bodies. They catch errors from services and translate them to HTTP responses. Status codes: 400 = bad input, 401 = unauthenticated, 403 = forbidden, 404 = not found, 409 = conflict/already-exists, 410 = gone/expired, 500 = server error.
+2. **Service functions** throw `new Error(ERR.CODE)` using constants from `src/lib/constants/error-codes.ts`. They never import HTTP-specific constructs.
 3. **Client-side error handling** uses toast notifications for transient errors (save failed, API timeout) and inline error states for persistent issues (form validation, empty states).
 4. **Auth errors are handled globally.** If any API call returns 401, redirect to login. Preserve the return URL so the user lands back where they were after re-authentication.
 5. **Never expose raw errors to users.** Wrap failures in user-friendly messages. Log the raw error server-side with full context.
+
+---
+
+## Service Logging Patterns
+
+- **Module-level `APP_URL` constant.** Every service that builds email links declares `const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? ''` at module scope with a `console.warn` if unset. Never inline `process.env.NEXT_PUBLIC_APP_URL ?? ''` at call sites.
+- **Entry logs for all service functions.** Every exported service function logs `console.log('[service-name] functionName:', { key params })` as the first statement. Read-only functions are included.
+- **Email catch blocks must log.** Email sends are wrapped in `try/catch` so failures cannot roll back committed DB state. The catch block must `console.error('[service-name] functionName: email send failed:', err)` — empty catch blocks are forbidden.
+- **Early returns inside try blocks must log.** If a function returns early inside a try block (e.g., missing row post-update), use `console.warn` with context before returning.
 
 ---
 

@@ -1,8 +1,8 @@
 # HackForge — Architecture
 
 **Document ID:** ARCH-004  
-**Date:** April 17, 2026  
-**Status:** Phase 3 Complete (Registration + Team Formation)  
+**Date:** April 18, 2026  
+**Status:** Phase 3 Complete + Post-Audit Hardening  
 **Update Frequency:** Every development phase
 
 ---
@@ -258,7 +258,7 @@ hackforge/                              # PROJECT ROOT
     │   │       └── accept/
     │   │           ├── page.tsx         # Email invite acceptance (?token=); InvalidInvitePage for bad states
     │   │           └── _components/
-    │   │               └── team-invite-accept-client.tsx  # Accept button (auth) / login+signup CTAs (unauth)
+    │   │               └── team-invite-accept-client.tsx  # Accept button (auth) / login+signup CTAs (unauth); shows team-full banner on 409
     │   │
     │   └── api/
     │       ├── auth/
@@ -348,7 +348,7 @@ hackforge/                              # PROJECT ROOT
     │       │           └── route.ts         # GET team by invite code (public, never exposes inviteCode)
     │       ├── team-invites/
     │       │   └── accept/
-    │       │       └── route.ts             # POST accept email invite by raw token (auth)
+    │       │       └── route.ts             # POST accept email invite by raw token (auth); verifies session user email matches invite recipient
     │       ├── user/
     │       │   └── hackathons/
     │       │       └── route.ts             # GET current user's registered hackathons
@@ -435,6 +435,9 @@ hackforge/                              # PROJECT ROOT
         │   ├── templates.ts           # Email HTML builders (13 Phase 3 templates added)
         │   └── adapters/
         │       └── resend-adapter.ts  # ResendEmailAdapter implementation
+        ├── constants/
+        │   ├── error-codes.ts         # ERR object — all error code strings thrown by services and caught by API routes
+        │   └── enums.ts               # Typed const objects mirroring DB enum values (HACKATHON_STATUS, TEAM_ADMIN_STATUS, JOIN_REQUEST_STATUS, TEAM_MEMBER_ROLE, JOIN_ENTRY_POINT, etc.)
         ├── services/
         │   ├── auth-service.ts        # Signup, verify, password reset logic
         │   ├── token-service.ts       # SHA-256 token generation + hashing
@@ -443,7 +446,7 @@ hackforge/                              # PROJECT ROOT
         │   ├── hackathon-service.ts   # Hackathon CRUD, slug gen, stats, transitions; slug mangling on soft-delete
         │   ├── hackathon-lifecycle.ts # Check-on-access status resolution engine
         │   ├── registration-service.ts # Registration CRUD, autoRegister, discoverability, getRegistrationsByUser, updateRegistration, getOrgParticipantStats (Phase 3)
-        │   ├── team-service.ts        # Team CRUD, membership, join requests, invites, approval; getTeamWithMembers, getJoinRequestsForTeam, getTeamInviteByToken, getAllTeamsForHackathon (AdminTeamRow[] for admin view) (Phase 3)
+        │   ├── team-service.ts        # Team CRUD, membership, join requests, invites, approval; acceptTeamInvite verifies authenticated user matches invite email; addMember enforces capacity inside transaction (Phase 3)
         │   └── team-up-service.ts     # Team-up request flow between unteamed participants (Phase 3)
         ├── storage/
         │   ├── types.ts               # StorageProvider interface + types
@@ -819,4 +822,4 @@ notification_type: registration, submission, judging, result, announcement
 
 ---
 
-*This document reflects what EXISTS in the codebase as of Phase 3 completion (April 18, 2026). It is updated after each development part. Planned tables will be validated against actual implementation during their respective phases.*
+*This document reflects what EXISTS in the codebase as of Phase 3 post-audit hardening (April 18, 2026). It is updated after each development part. Planned tables will be validated against actual implementation during their respective phases.*
