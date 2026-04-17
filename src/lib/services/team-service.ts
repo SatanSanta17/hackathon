@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { and, asc, count, eq, isNull, ne } from 'drizzle-orm';
+import { and, asc, count, eq, inArray, isNull, ne } from 'drizzle-orm';
 
 import { db } from '@/db';
 import {
@@ -801,6 +801,83 @@ export async function getJoinRequestsForTeam(teamId: string): Promise<JoinReques
       ),
     )
     .orderBy(asc(teamJoinRequests.requestedAt));
+}
+
+// ---------------------------------------------------------------------------
+// Part 4 — Admin team management
+// ---------------------------------------------------------------------------
+
+export interface AdminTeamRow {
+  id: string;
+  name: string;
+  trackId: string | null;
+  trackName: string | null;
+  isOpen: boolean;
+  memberCount: number;
+  leadName: string | null;
+  adminStatus: 'pending_review' | 'approved' | 'rejected';
+  reviewReason: string | null;
+  createdAt: Date;
+}
+
+export async function getAllTeamsForHackathon(
+  hackathonId: string,
+  filters?: {
+    trackId?: string;
+    isOpen?: boolean;
+    adminStatus?: 'pending_review' | 'approved' | 'rejected';
+  },
+): Promise<AdminTeamRow[]> {
+  const conditions = [eq(teams.hackathonId, hackathonId), isNull(teams.deletedAt)];
+  if (filters?.trackId) conditions.push(eq(teams.trackId, filters.trackId));
+  if (filters?.isOpen !== undefined) conditions.push(eq(teams.isOpen, filters.isOpen));
+  if (filters?.adminStatus) conditions.push(eq(teams.adminStatus, filters.adminStatus));
+
+  const teamRows = await db
+    .select({
+      id: teams.id,
+      name: teams.name,
+      trackId: teams.trackId,
+      trackName: tracks.name,
+      isOpen: teams.isOpen,
+      adminStatus: teams.adminStatus,
+      reviewReason: teams.reviewReason,
+      createdAt: teams.createdAt,
+    })
+    .from(teams)
+    .leftJoin(tracks, eq(tracks.id, teams.trackId))
+    .where(and(...conditions))
+    .orderBy(asc(teams.createdAt));
+
+  if (teamRows.length === 0) return [];
+
+  const teamIds = teamRows.map((t) => t.id);
+  const memberRows = await db
+    .select({
+      teamId: teamMembers.teamId,
+      role: teamMembers.role,
+      userName: users.name,
+    })
+    .from(teamMembers)
+    .innerJoin(users, eq(users.id, teamMembers.userId))
+    .where(inArray(teamMembers.teamId, teamIds));
+
+  return teamRows.map((team) => {
+    const members = memberRows.filter((m) => m.teamId === team.id);
+    const lead = members.find((m) => m.role === 'lead');
+    return {
+      id: team.id,
+      name: team.name,
+      trackId: team.trackId,
+      trackName: team.trackName ?? null,
+      isOpen: team.isOpen,
+      adminStatus: team.adminStatus as AdminTeamRow['adminStatus'],
+      reviewReason: team.reviewReason,
+      createdAt: team.createdAt,
+      memberCount: members.length,
+      leadName: lead?.userName ?? null,
+    };
+  });
 }
 
 export async function getTeamInviteByToken(token: string): Promise<{

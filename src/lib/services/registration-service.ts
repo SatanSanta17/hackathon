@@ -1,4 +1,4 @@
-import { and, count, desc, eq, isNull } from 'drizzle-orm';
+import { and, count, countDistinct, desc, eq, inArray, isNull } from 'drizzle-orm';
 
 import { db } from '@/db';
 import {
@@ -363,6 +363,49 @@ export async function getRegistrationsByUser(
       };
     }),
   );
+}
+
+// ---------------------------------------------------------------------------
+// Part 4 — Org-level participant stats
+// ---------------------------------------------------------------------------
+
+export async function getOrgParticipantStats(
+  orgId: string,
+): Promise<{ registered: number; participating: number }> {
+  const activeStatuses = ['active', 'published'] as const;
+
+  const [regResult, partResult] = await Promise.all([
+    db
+      .select({ total: countDistinct(registrations.userId) })
+      .from(registrations)
+      .innerJoin(hackathons, eq(hackathons.id, registrations.hackathonId))
+      .where(
+        and(
+          eq(hackathons.orgId, orgId),
+          inArray(hackathons.status, [...activeStatuses]),
+          isNull(registrations.deletedAt),
+          isNull(hackathons.deletedAt),
+        ),
+      ),
+    db
+      .select({ total: countDistinct(teamMembers.userId) })
+      .from(teamMembers)
+      .innerJoin(teams, eq(teams.id, teamMembers.teamId))
+      .innerJoin(hackathons, eq(hackathons.id, teams.hackathonId))
+      .where(
+        and(
+          eq(hackathons.orgId, orgId),
+          inArray(hackathons.status, [...activeStatuses]),
+          isNull(teams.deletedAt),
+          isNull(hackathons.deletedAt),
+        ),
+      ),
+  ]);
+
+  return {
+    registered: regResult[0]?.total ?? 0,
+    participating: partResult[0]?.total ?? 0,
+  };
 }
 
 // ---------------------------------------------------------------------------
