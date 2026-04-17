@@ -13,7 +13,11 @@ import {
   users,
 } from '@/db/schema';
 import { getEmailService } from '@/lib/email';
-import { teamDisbandedAdminEmail } from '@/lib/email/templates';
+import {
+  teamApprovedEmail,
+  teamDisbandedAdminEmail,
+  teamRejectedEmail,
+} from '@/lib/email/templates';
 import { autoRegister } from '@/lib/services/registration-service';
 import type { Team, TeamInvite, TeamJoinRequest, TeamMember } from '@/db/schema';
 
@@ -694,6 +698,49 @@ export async function approveTeam(teamId: string): Promise<void> {
     .update(teams)
     .set({ adminStatus: 'approved', reviewReason: null, updatedAt: new Date() })
     .where(eq(teams.id, teamId));
+
+  // Send approval emails outside the update so email failure cannot roll back the status change
+  try {
+    const [teamRow] = await db
+      .select({ name: teams.name, hackathonId: teams.hackathonId })
+      .from(teams)
+      .where(eq(teams.id, teamId))
+      .limit(1);
+
+    if (!teamRow) return;
+
+    const [hackathon] = await db
+      .select({ title: hackathons.title, slug: hackathons.slug })
+      .from(hackathons)
+      .where(eq(hackathons.id, teamRow.hackathonId))
+      .limit(1);
+
+    if (!hackathon) return;
+
+    const members = await db
+      .select({ name: users.name, email: users.email })
+      .from(teamMembers)
+      .innerJoin(users, eq(users.id, teamMembers.userId))
+      .where(eq(teamMembers.teamId, teamId));
+
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? '';
+    const teamUrl = `${appUrl}/hackathons/${hackathon.slug}/teams/${teamId}`;
+    const emailService = getEmailService();
+
+    for (const member of members) {
+      await emailService.send({
+        to: member.email,
+        ...teamApprovedEmail({
+          memberName: member.name,
+          teamName: teamRow.name,
+          hackathonTitle: hackathon.title,
+          teamUrl,
+        }),
+      });
+    }
+  } catch {
+    // Email failure must not surface
+  }
 }
 
 export async function rejectTeam(teamId: string): Promise<void> {
@@ -701,6 +748,59 @@ export async function rejectTeam(teamId: string): Promise<void> {
     .update(teams)
     .set({ adminStatus: 'rejected', updatedAt: new Date() })
     .where(eq(teams.id, teamId));
+
+  try {
+    const [teamRow] = await db
+      .select({ name: teams.name, hackathonId: teams.hackathonId })
+      .from(teams)
+      .where(eq(teams.id, teamId))
+      .limit(1);
+
+    if (!teamRow) return;
+
+    const [hackathon] = await db
+      .select({ title: hackathons.title, orgId: hackathons.orgId })
+      .from(hackathons)
+      .where(eq(hackathons.id, teamRow.hackathonId))
+      .limit(1);
+
+    if (!hackathon) return;
+
+    const [leadRow] = await db
+      .select({ name: users.name, email: users.email })
+      .from(teamMembers)
+      .innerJoin(users, eq(users.id, teamMembers.userId))
+      .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.role, 'lead')))
+      .limit(1);
+
+    if (!leadRow) return;
+
+    const [adminRow] = await db
+      .select({ email: users.email })
+      .from(orgMemberships)
+      .innerJoin(users, eq(users.id, orgMemberships.userId))
+      .where(
+        and(
+          eq(orgMemberships.orgId, hackathon.orgId),
+          eq(orgMemberships.role, 'org_admin'),
+          isNull(orgMemberships.deletedAt),
+        ),
+      )
+      .limit(1);
+
+    const emailService = getEmailService();
+    await emailService.send({
+      to: leadRow.email,
+      ...teamRejectedEmail({
+        leadName: leadRow.name,
+        teamName: teamRow.name,
+        hackathonTitle: hackathon.title,
+        organizerEmail: adminRow?.email ?? (process.env.FROM_EMAIL ?? ''),
+      }),
+    });
+  } catch {
+    // Email failure must not surface
+  }
 }
 
 // ---------------------------------------------------------------------------
