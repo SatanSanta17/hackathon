@@ -3,7 +3,7 @@
 **Document ID:** TRD-008  
 **Date:** April 17, 2026  
 **Author:** Burhanuddin C.  
-**Status:** Part 1 — In Progress  
+**Status:** Part 2 Written — Awaiting Implementation  
 **PRD Reference:** `docs/008-registration-teams/prd.md`  
 **Architecture Reference:** `docs/004-architecture.md`  
 **Conventions Reference:** `docs/003-coding-conventions.md`
@@ -1991,4 +1991,1469 @@ Build all schema changes first — this is the foundation everything else depend
 
 ---
 
-*Parts 2–4 will be written after Part 1 is implemented and verified.*
+*Parts 3–4 will be written after Parts 1–2 are implemented and verified.*
+
+---
+
+## Part 2: Registration Flow
+
+**PRD Requirements Covered:** P2.R1 through P2.R11
+
+---
+
+### 2.1 Dependencies (New for Part 2)
+
+No new npm packages. Add two missing shadcn/ui components before implementing:
+
+```bash
+npx shadcn@latest add switch textarea
+```
+
+- **switch** — `requires_approval` toggle in wizard; `isDiscoverable` toggle in registration form
+- **textarea** — textarea field type in the registration form renderer
+
+All other dependencies (react-hook-form, zod, @hello-pangea/dnd, next-auth) are already installed.
+
+---
+
+### 2.2 New Service Methods
+
+Add two methods to the existing `src/lib/services/registration-service.ts`.
+
+**`getRegistrationsByUser`** — used by the "My Hackathons" page:
+
+```typescript
+import { desc } from 'drizzle-orm';
+import { hackathons } from '@/db/schema/hackathons';
+import { teamMembers } from '@/db/schema/team-members';
+import { teams } from '@/db/schema/teams';
+
+export interface UserHackathonSummary {
+  registrationId: string;
+  hackathonId: string;
+  registeredAt: Date;
+  formData: Record<string, string> | null;
+  hackathon: {
+    title: string;
+    slug: string;
+    status: string;
+    coverImageKey: string | null;
+    requiresApproval: boolean;
+  };
+  team: {
+    id: string;
+    name: string;
+    adminStatus: string;
+    memberCount: number;
+  } | null;
+}
+
+export async function getRegistrationsByUser(
+  userId: string,
+): Promise<UserHackathonSummary[]> {
+  const rows = await db
+    .select({
+      registrationId: registrations.id,
+      hackathonId: registrations.hackathonId,
+      registeredAt: registrations.registeredAt,
+      formData: registrations.formData,
+      hackathonTitle: hackathons.title,
+      hackathonSlug: hackathons.slug,
+      hackathonStatus: hackathons.status,
+      hackathonCoverImageKey: hackathons.coverImageKey,
+      hackathonRequiresApproval: hackathons.requiresApproval,
+    })
+    .from(registrations)
+    .innerJoin(hackathons, eq(registrations.hackathonId, hackathons.id))
+    .where(
+      and(
+        eq(registrations.userId, userId),
+        isNull(registrations.deletedAt),
+        isNull(hackathons.deletedAt),
+      ),
+    )
+    .orderBy(desc(registrations.registeredAt));
+
+  return Promise.all(
+    rows.map(async (row) => {
+      const team = await getUserTeamForHackathon(userId, row.hackathonId);
+      let teamWithCount: UserHackathonSummary['team'] = null;
+
+      if (team) {
+        const [{ memberCount }] = await db
+          .select({ memberCount: count() })
+          .from(teamMembers)
+          .where(eq(teamMembers.teamId, team.id));
+        teamWithCount = {
+          id: team.id,
+          name: team.name,
+          adminStatus: team.adminStatus,
+          memberCount,
+        };
+      }
+
+      return {
+        registrationId: row.registrationId,
+        hackathonId: row.hackathonId,
+        registeredAt: row.registeredAt,
+        formData: row.formData as Record<string, string> | null,
+        hackathon: {
+          title: row.hackathonTitle,
+          slug: row.hackathonSlug,
+          status: row.hackathonStatus,
+          coverImageKey: row.hackathonCoverImageKey,
+          requiresApproval: row.hackathonRequiresApproval,
+        },
+        team: teamWithCount,
+      };
+    }),
+  );
+}
+```
+
+**`updateRegistration`** — used by the profile completion form (PATCH /registration):
+
+```typescript
+export async function updateRegistration(
+  registrationId: string,
+  data: { formData?: Record<string, string> | null; isDiscoverable?: boolean },
+): Promise<Registration> {
+  const [updated] = await db
+    .update(registrations)
+    .set({ ...data, updatedAt: new Date() })
+    .where(eq(registrations.id, registrationId))
+    .returning();
+
+  if (!updated) throw new Error('REGISTRATION_NOT_FOUND');
+  return updated;
+}
+```
+
+**Design decisions:**
+- `getRegistrationsByUser` has an N+1 for team lookups per registration. Acceptable in V1 — a user is registered to at most a handful of hackathons at any given time.
+- `getUserTeamForHackathon` is imported from `team-service.ts`. This creates a cross-service call; it is intentional (no circular dep — registration-service imports team-service, never the reverse).
+
+---
+
+### 2.3 API Routes (P2.R11)
+
+Seven new route files. All follow the existing pattern: `requireVerifiedUser()` for participant endpoints, fetch hackathon to get `orgId` then `requireOrgRole()` for admin endpoints.
+
+#### `src/app/api/hackathons/[hackathonId]/register/route.ts`
+
+```typescript
+import { type NextRequest, NextResponse } from 'next/server';
+import { requireVerifiedUser } from '@/lib/auth/require-verified';
+import { getHackathonById } from '@/lib/services/hackathon-service';
+import { createRegistration, getRegistrationFields } from '@/lib/services/registration-service';
+import { createRegistrationSchema } from '@/lib/validations/registration';
+import { getEmailService } from '@/lib/email';
+import { registrationConfirmedEmail } from '@/lib/email/templates';
+import { db } from '@/db';
+import { users } from '@/db/schema/users';
+import { eq } from 'drizzle-orm';
+
+export async function POST(
+  req: NextRequest,
+  { params }: { params: Promise<{ hackathonId: string }> },
+) {
+  const { hackathonId } = await params;
+  const user = await requireVerifiedUser();
+  if (!user) return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
+
+  const hackathon = await getHackathonById(hackathonId);
+  if (!hackathon) return NextResponse.json({ message: 'Not found' }, { status: 404 });
+
+  const { hackathon: h, phases } = hackathon;
+
+  if (h.status !== 'published' && h.status !== 'active') {
+    return NextResponse.json({ message: 'Registration is not open' }, { status: 403 });
+  }
+
+  const regPhase = phases.find((p) => p.type === 'registration');
+  if (regPhase?.status === 'completed') {
+    return NextResponse.json({ message: 'Registration has closed' }, { status: 403 });
+  }
+
+  const body = await req.json();
+  const parsed = createRegistrationSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { message: 'Validation error', errors: parsed.error.flatten() },
+      { status: 400 },
+    );
+  }
+
+  try {
+    const registration = await createRegistration(
+      hackathonId,
+      user.id,
+      parsed.data.formData ?? null,
+      parsed.data.isDiscoverable,
+    );
+
+    try {
+      const [userData] = await db
+        .select({ name: users.name, email: users.email })
+        .from(users)
+        .where(eq(users.id, user.id))
+        .limit(1);
+      await getEmailService().send({
+        to: userData.email,
+        ...registrationConfirmedEmail({
+          name: userData.name,
+          hackathonTitle: h.title,
+          hackathonSlug: h.slug,
+          appUrl: process.env.NEXT_PUBLIC_APP_URL!,
+        }),
+      });
+    } catch { /* email failure must not fail the registration */ }
+
+    return NextResponse.json({ registration }, { status: 201 });
+  } catch (err) {
+    if (err instanceof Error && err.message === 'ALREADY_REGISTERED') {
+      return NextResponse.json({ message: 'Already registered' }, { status: 409 });
+    }
+    return NextResponse.json({ message: 'Internal error' }, { status: 500 });
+  }
+}
+```
+
+#### `src/app/api/hackathons/[hackathonId]/registration/route.ts`
+
+GET returns own registration; PATCH updates formData/isDiscoverable (profile completion):
+
+```typescript
+export async function GET(req, { params }) {
+  // requireVerifiedUser → getRegistrationByUserAndHackathon(user.id, hackathonId)
+  // 404 if not found, 200 with registration if found
+}
+
+export async function PATCH(req, { params }) {
+  // requireVerifiedUser → getRegistrationByUserAndHackathon to confirm ownership
+  // Body: { formData?, isDiscoverable? }
+  // updateRegistration(registration.id, parsedBody)
+  // 200 with updated registration
+}
+```
+
+**Validation schema for PATCH** — add to `src/lib/validations/registration.ts`:
+```typescript
+export const updateRegistrationSchema = z.object({
+  formData: z.record(z.string(), z.string()).optional().nullable(),
+  isDiscoverable: z.boolean().optional(),
+});
+export type UpdateRegistrationInput = z.infer<typeof updateRegistrationSchema>;
+```
+
+#### `src/app/api/hackathons/[hackathonId]/registration-fields/route.ts`
+
+```typescript
+// GET: public — no auth
+export async function GET(req, { params }) {
+  const { hackathonId } = await params;
+  const fields = await getRegistrationFields(hackathonId);
+  return NextResponse.json({ fields });
+}
+
+// POST: org_admin only — upsert
+export async function POST(req, { params }) {
+  const { hackathonId } = await params;
+  const user = await requireVerifiedUser();
+  if (!user) return 401;
+  // fetch hackathon to get orgId, then requireOrgRole(orgId, user.id, 'org_admin')
+  const body = await req.json();
+  const parsed = upsertRegistrationFieldsSchema.safeParse(body);
+  if (!parsed.success) return 400;
+  await upsertRegistrationFields(hackathonId, parsed.data.fields);
+  return NextResponse.json({ ok: true });
+}
+```
+
+#### `src/app/api/hackathons/[hackathonId]/registrations/route.ts`
+
+Admin-only roster:
+
+```typescript
+// GET: org_admin — full registration list with user + team data
+export async function GET(req, { params }) {
+  // requireOrgRole check
+  const registrations = await getRegistrationsByHackathon(hackathonId);
+  return NextResponse.json({ registrations });
+}
+```
+
+#### `src/app/api/hackathons/[hackathonId]/registrations/export/route.ts`
+
+CSV export:
+
+```typescript
+export async function GET(req, { params }) {
+  const { hackathonId } = await params;
+  // requireOrgRole check
+
+  const [rows, fields] = await Promise.all([
+    getRegistrationsByHackathon(hackathonId),
+    getRegistrationFields(hackathonId),
+  ]);
+
+  const customFieldLabels = fields.map((f) => `"${f.label}"`);
+  const header = [
+    'Name', 'Email', 'Department', 'Designation',
+    'Registration Date', 'Team Name', 'Track', 'Discoverable',
+    ...customFieldLabels,
+  ].join(',');
+
+  const dataRows = rows.map((r) => {
+    const base = [
+      `"${r.user.name}"`,
+      `"${r.user.email}"`,
+      `"${r.formData?.department ?? ''}"`,
+      `"${r.formData?.designation ?? ''}"`,
+      `"${r.registeredAt.toISOString()}"`,
+      `"${r.team?.name ?? ''}"`,
+      `"${r.team?.trackName ?? ''}"`,
+      r.isDiscoverable ? 'Yes' : 'No',
+    ];
+    const customValues = fields.map((f) => `"${(r.formData?.[f.id] ?? '').replace(/"/g, '""')}"`);
+    return [...base, ...customValues].join(',');
+  });
+
+  const csv = [header, ...dataRows].join('\n');
+
+  return new Response(csv, {
+    headers: {
+      'Content-Type': 'text/csv',
+      'Content-Disposition': `attachment; filename="registrations-${hackathonId}.csv"`,
+    },
+  });
+}
+```
+
+**Design decisions:**
+- CSV built in-memory (simple string concat). No streaming library needed at V1 participant counts (hundreds, not hundreds of thousands).
+- Custom field values keyed by `field.id` (UUID). Quote characters in values are escaped by doubling (`""`), which is standard CSV escaping.
+- `Content-Disposition: attachment` triggers a browser download automatically when linked from the page with a plain `<a href="..." download>` tag. No client-side fetch needed.
+
+#### `src/app/api/user/hackathons/route.ts`
+
+```typescript
+// GET: requireVerifiedUser → getRegistrationsByUser(user.id) → 200
+```
+
+---
+
+### 2.4 Wizard Step 6: Participation Settings (P2.R1)
+
+Inserting this step between Step 5 (Team Rules) and the current Step 6 (Prizes) shifts all later steps +1. The wizard grows from 8 to 9 steps.
+
+#### Changes to `wizard-shell.tsx`
+
+Read the file before modifying. The changes are surgical — only the specifically noted lines change.
+
+**1. `STEPS` constant** — insert `{ number: 6, name: 'Participation' }` and renumber 6→7, 7→8, 8→9:
+
+```typescript
+const STEPS = [
+  { number: 1, name: 'Template' },
+  { number: 2, name: 'Basic Info' },
+  { number: 3, name: 'Tracks' },
+  { number: 4, name: 'Timeline' },
+  { number: 5, name: 'Team Rules' },
+  { number: 6, name: 'Participation' },    // NEW
+  { number: 7, name: 'Prizes' },           // was 6
+  { number: 8, name: 'Rules & FAQs' },     // was 7
+  { number: 9, name: 'Review & Publish' }, // was 8
+] as const;
+```
+
+**2. New state** — add after `prizesData`:
+
+```typescript
+const [registrationFieldsData, setRegistrationFieldsData] = useState<RegistrationFieldInput[]>(
+  hackathon?.registrationFields ?? [],
+);
+```
+
+`RegistrationFieldInput` is imported from `@/lib/validations/registration`.
+
+**3. Edit mode init changes:**
+- `useState(isEditMode ? 9 : 1)` for `highestStepReached` (was 8)
+- `for (let i = 1; i <= 9; i++) initial.add(i)` in `visitedSteps` init (was 8)
+
+**4. `getFurthestStep`** — update all return values:
+
+```typescript
+function getFurthestStep(data: HackathonWithRelations): number {
+  const { hackathon: h, phases, tracks, prizes } = data;
+  if (h.rulesHtml || h.faqsHtml) return 9;    // was 8
+  if (prizes.length > 0) return 8;              // was 7
+  if (h.requiresApproval) return 7;             // new: participation step visited if requires_approval was set
+  if (h.teamMinSize !== 1 || h.teamMaxSize !== 5) return 6; // was return 6 (same number, now means Participation step)
+  // ...rest unchanged
+}
+```
+
+**5. `handleNext`** — `if (currentStep < 9)` (was `< 8`)
+
+**6. Navigation footer** — `currentStep !== 9` (was `!== 8`)
+
+**7. Steps with own Save & Continue button** — the array `[2, 4, 5, 7, 8]` that suppresses the generic "Next" button becomes `[2, 4, 5, 6, 8, 9]`:
+- Step 6 (Participation) — new, gets its own Save & Continue
+- Step 8 (Rules & FAQs, was 7) — unchanged logic
+- Step 9 (Review, was 8) — no Next button needed
+
+**8. `getStepStatus` switch** — add case 6, renumber 6→7, 7→8, 8→9. Case 6 is optional (visited = complete):
+```typescript
+case 6:
+  if (!hackathonId) return 'not_started';
+  return visitedSteps.has(6) ? 'complete' : 'not_started';
+case 7: // Prizes (was case 6)
+  ...
+```
+
+**9. `renderStepContent` switch** — add case 6, renumber 7/8/9:
+
+```typescript
+case 6:
+  return hackathonId ? (
+    <StepParticipation
+      hackathonId={hackathonId}
+      orgId={orgId}
+      initialRequiresApproval={hackathonData.requiresApproval ?? false}
+      initialFields={registrationFieldsData}
+      onSave={(data) => {
+        setHackathonData((prev) => ({ ...prev, requiresApproval: data.requiresApproval }));
+        setRegistrationFieldsData(data.fields);
+      }}
+      onNext={handleNext}
+    />
+  ) : null;
+case 7: // StepPrizes (was case 6)
+  ...
+case 8: // StepRulesFaqs (was case 7)
+  ...
+case 9: // StepReview (was case 8)
+  ...
+```
+
+StepReview currently receives `prizesData` and others — its `onNavigateToStep` prop already uses step numbers; update review's "Edit" links to point to the new step numbers (prizes is now step 7, etc.).
+
+#### New file: `src/app/(dashboard)/dashboard/[orgSlug]/hackathons/create/_components/step-participation.tsx`
+
+```typescript
+'use client';
+
+import { useState } from 'react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
+import { GripVertical, Plus, Trash2 } from 'lucide-react';
+import { toast } from 'sonner';
+import { z } from 'zod';
+
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
+import type { RegistrationFieldInput } from '@/lib/validations/registration';
+
+interface StepParticipationProps {
+  hackathonId: string;
+  orgId: string;
+  initialRequiresApproval: boolean;
+  initialFields: RegistrationFieldInput[];
+  onSave: (data: { requiresApproval: boolean; fields: RegistrationFieldInput[] }) => void;
+  onNext: () => void;
+}
+```
+
+Internal state:
+- `requiresApproval: boolean` — controlled by Switch
+- `fields: RegistrationFieldInput[]` — the field list, mutated by add/reorder/delete/edit
+- `isSaving: boolean`
+
+"Add Field" button: appends `{ label: '', fieldType: 'text', options: null, required: false, order: fields.length }` to the array. Button disabled when `fields.length >= 10`.
+
+Each field row:
+- Drag handle: `<GripVertical />` icon (DnD provided)
+- Label: `<Input>` bound to `field.label`
+- Type: `<Select>` with options Text / Long Answer / Dropdown
+- Options (only when type = dropdown): `<Input placeholder="Option 1, Option 2, Option 3" />` — value is a comma-separated string; parsed into `string[]` on save
+- Required: `<Switch>` bound to `field.required`
+- Delete: `<Trash2>` button
+
+Save & Continue handler:
+1. Validate — no empty labels (show inline error, do not proceed)
+2. Parse dropdown options: split by comma, trim whitespace, filter empty strings
+3. Re-index `order` values (0, 1, 2…)
+4. `PATCH /api/hackathons/[hackathonId]` with `{ requiresApproval }`
+5. `POST /api/hackathons/[hackathonId]/registration-fields` with `{ fields }`
+6. On success: call `onSave({ requiresApproval, fields })` and `onNext()`
+7. On error: toast error, leave user on step
+
+**Design decisions:**
+- Dropdown options stored as comma-separated text in the UI for simplicity. Parsed to `string[]` on save. This avoids needing a tag-input component for V1.
+- Each field edit is purely local state until "Save & Continue" — no auto-save, no debounced saves. This is consistent with the approach in `step-tracks.tsx` (changes to tracks are saved immediately, but participation settings have more complexity). Actually looking at the tracks step — tracks ARE auto-saved on each add/edit/delete via API. For participation settings, the bulk "wipe and re-insert" nature of `upsertRegistrationFields` makes auto-save on every keystroke impractical. Batch-save on "Save & Continue" is the correct pattern here.
+
+#### Update `HackathonWithRelations` in `hackathon-service.ts`
+
+Add optional `registrationFields?: RegistrationField[]` to the interface. Do not add it to `getHackathonsByOrgId` (not needed for the list view). Only add it when loading for the wizard:
+
+```typescript
+// In getHackathonById, after building the base return object:
+import { getRegistrationFields } from '@/lib/services/registration-service';
+
+// Add to the returned object:
+registrationFields: await getRegistrationFields(hackathon.id),
+```
+
+This adds one extra query to `getHackathonById`. Since this function is already doing multiple joins, one more query is acceptable. `getHackathonsByOrgId` is NOT changed — avoid loading fields for the list view.
+
+Type update in hackathon-service.ts:
+```typescript
+export interface HackathonWithRelations {
+  hackathon: Hackathon;
+  phases: Phase[];
+  tracks: Track[];
+  prizes: Prize[];
+  orgName: string;
+  registrationFields?: RegistrationField[];  // NEW — optional, only loaded in getHackathonById
+}
+```
+
+---
+
+### 2.5 Landing Page: State-Aware CTA (P2.R2, P2.R7)
+
+#### CTA state type
+
+Define in a new file `src/app/(public)/hackathons/[slug]/_components/registration-cta.tsx`:
+
+```typescript
+export type CtaState =
+  | { type: 'unauthenticated' }
+  | { type: 'register'; hackathonId: string }
+  | { type: 'registration_closed' }
+  | { type: 'find_team'; teamsUrl: string }
+  | { type: 'under_review'; teamId: string }
+  | { type: 'my_team'; teamId: string; teamUrl: string }
+  | { type: 'team_rejected' }
+  | { type: 'completed' };
+```
+
+#### Changes to `src/app/(public)/hackathons/[slug]/page.tsx`
+
+Add server-side CTA state computation after hackathon is fetched. The registration fields are also fetched here (to pass into the modal):
+
+```typescript
+import { auth } from '@/lib/auth/auth';
+import {
+  getRegistrationByUserAndHackathon,
+  getRegistrationFields,
+} from '@/lib/services/registration-service';
+import { getUserTeamForHackathon } from '@/lib/services/team-service';
+import type { CtaState } from './_components/registration-cta';
+
+// After fetching hackathon data:
+const session = await auth();
+const registrationFields = await getRegistrationFields(hackathonData.hackathon.id);
+
+function isRegOpen(hackathon: HackathonWithRelations): boolean {
+  const { hackathon: h, phases } = hackathon;
+  if (h.status !== 'published' && h.status !== 'active') return false;
+  const regPhase = phases.find((p) => p.type === 'registration');
+  return !regPhase || regPhase.status !== 'completed';
+}
+
+let ctaState: CtaState;
+
+if (hackathonData.hackathon.status === 'completed') {
+  ctaState = { type: 'completed' };
+} else if (!session?.user) {
+  ctaState = isRegOpen(hackathonData)
+    ? { type: 'unauthenticated' }
+    : { type: 'registration_closed' };
+} else {
+  const registration = await getRegistrationByUserAndHackathon(
+    session.user.id,
+    hackathonData.hackathon.id,
+  );
+
+  if (!registration) {
+    ctaState = isRegOpen(hackathonData)
+      ? { type: 'register', hackathonId: hackathonData.hackathon.id }
+      : { type: 'registration_closed' };
+  } else {
+    const team = await getUserTeamForHackathon(session.user.id, hackathonData.hackathon.id);
+    if (!team) {
+      ctaState = {
+        type: 'find_team',
+        teamsUrl: `/hackathons/${hackathonData.hackathon.slug}/teams`,
+      };
+    } else if (team.adminStatus === 'pending_review') {
+      ctaState = { type: 'under_review', teamId: team.id };
+    } else if (team.adminStatus === 'approved') {
+      ctaState = {
+        type: 'my_team',
+        teamId: team.id,
+        teamUrl: `/hackathons/${hackathonData.hackathon.slug}/teams/${team.id}`,
+      };
+    } else {
+      ctaState = { type: 'team_rejected' };
+    }
+  }
+}
+```
+
+Pass `ctaState`, `hackathonSlug`, `hackathonTitle`, `hackathonOrgName`, and `registrationFields` to `LandingHero`.
+
+#### Changes to `landing-hero.tsx`
+
+Add props: `ctaState: CtaState`, `hackathonSlug: string`, `registrationFields: RegistrationField[]`.
+
+Replace the static `<Button>` block with:
+
+```tsx
+<RegistrationCta
+  ctaState={ctaState}
+  hackathonSlug={hackathonSlug}
+  hackathonTitle={title}
+  registrationFields={registrationFields}
+/>
+```
+
+`landing-hero.tsx` itself remains a server component (no `'use client'`). The client behavior is entirely inside `RegistrationCta`.
+
+#### New file: `src/app/(public)/hackathons/[slug]/_components/registration-cta.tsx`
+
+```typescript
+'use client';
+
+import { useState } from 'react';
+import Link from 'next/link';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Button } from '@/components/ui/button';
+import { AuthRegistrationModal } from './auth-registration-modal';
+import type { RegistrationField } from '@/db/schema';
+
+// CtaState type defined here (as above)
+
+interface RegistrationCtaProps {
+  ctaState: CtaState;
+  hackathonSlug: string;
+  hackathonTitle: string;
+  registrationFields: RegistrationField[];
+}
+
+export function RegistrationCta({
+  ctaState,
+  hackathonSlug,
+  hackathonTitle,
+  registrationFields,
+}: RegistrationCtaProps) {
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalInitialMode, setModalInitialMode] = useState<'auth' | 'register'>('auth');
+
+  function openAuth() {
+    setModalInitialMode('auth');
+    setModalOpen(true);
+  }
+
+  function openRegister() {
+    setModalInitialMode('register');
+    setModalOpen(true);
+  }
+
+  return (
+    <>
+      {ctaState.type === 'unauthenticated' && (
+        <Button size="lg" onClick={openAuth} className="font-heading text-base font-semibold">
+          Register Now
+        </Button>
+      )}
+
+      {ctaState.type === 'register' && (
+        <Button size="lg" onClick={openRegister} className="font-heading text-base font-semibold">
+          Register Now
+        </Button>
+      )}
+
+      {ctaState.type === 'registration_closed' && (
+        <Button size="lg" disabled className="font-heading text-base font-semibold">
+          Registration Closed
+        </Button>
+      )}
+
+      {ctaState.type === 'find_team' && (
+        <Button size="lg" asChild className="font-heading text-base font-semibold">
+          <Link href={ctaState.teamsUrl}>Find a Team</Link>
+        </Button>
+      )}
+
+      {ctaState.type === 'under_review' && (
+        <Button
+          size="lg"
+          disabled
+          className="font-heading text-base font-semibold border border-amber-500/40 bg-amber-500/15 text-amber-600 hover:bg-amber-500/15 cursor-default"
+        >
+          Team Under Review
+        </Button>
+      )}
+
+      {ctaState.type === 'my_team' && (
+        <Button size="lg" asChild className="font-heading text-base font-semibold">
+          <Link href={ctaState.teamUrl}>My Team</Link>
+        </Button>
+      )}
+
+      {ctaState.type === 'team_rejected' && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              size="lg"
+              disabled
+              className="font-heading text-base font-semibold cursor-default opacity-50"
+            >
+              Team Rejected
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            Your team was not approved. Contact the organiser.
+          </TooltipContent>
+        </Tooltip>
+      )}
+
+      {(ctaState.type === 'unauthenticated' ||
+        ctaState.type === 'register') && (
+        <AuthRegistrationModal
+          open={modalOpen}
+          onOpenChange={setModalOpen}
+          hackathonId={ctaState.type === 'register' ? ctaState.hackathonId : ''}
+          hackathonSlug={hackathonSlug}
+          hackathonTitle={hackathonTitle}
+          registrationFields={registrationFields}
+          initialMode={modalInitialMode}
+        />
+      )}
+    </>
+  );
+}
+```
+
+**Design decisions:**
+- `hackathonId` is only needed for the `'register'` state. For `'unauthenticated'`, the modal starts in auth mode; after sign-in the page refreshes and the CTA re-renders server-side with the updated state. If the user is now authenticated and unregistered, the CTA will be `'register'` and clicking it opens the modal directly in register mode.
+- The amber "Under Review" button uses inline className overrides rather than a new Button variant. This avoids adding a one-off variant to the shared UI component for a single use case.
+- `<Tooltip>` wraps a disabled button for "team_rejected" — standard HTML `disabled` buttons do not fire mouse events, but wrapping in `TooltipTrigger asChild` with a `<span>` wrapper handles this. If the shadcn Tooltip doesn't show on disabled buttons, wrap with `<span tabIndex={0}>`.
+
+---
+
+### 2.6 Auth Modal (P2.R3)
+
+#### Modify `src/app/(auth)/login/_components/login-form.tsx`
+
+Add optional `onSuccess?: () => void` prop. When provided, call it instead of `router.push()`:
+
+```typescript
+interface LoginFormProps {
+  onSuccess?: () => void;
+}
+
+export function LoginForm({ onSuccess }: LoginFormProps = {}) {
+  // ...in onSubmit, after successful signIn:
+  if (onSuccess) {
+    router.refresh(); // refresh session for server components
+    onSuccess();
+  } else {
+    router.push(callbackUrl);
+    router.refresh();
+  }
+}
+```
+
+The prop is optional with a default of `{}`, so all existing usages (login page) are unaffected.
+
+#### Modify `src/app/(auth)/signup/_components/signup-form.tsx`
+
+Same pattern — add `onSuccess?: () => void`. Call it after the account is successfully created and verification email sent (not after email verification). The modal transitions to a "check your email" state.
+
+#### New file: `src/app/(public)/hackathons/[slug]/_components/auth-registration-modal.tsx`
+
+```typescript
+'use client';
+
+import { useState } from 'react';
+import { CheckCircle2 } from 'lucide-react';
+import Link from 'next/link';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Button } from '@/components/ui/button';
+import { LoginForm } from '@/app/(auth)/login/_components/login-form';
+import { SignupForm } from '@/app/(auth)/signup/_components/signup-form';
+import { RegistrationForm } from './registration-form';
+import type { RegistrationField } from '@/db/schema';
+
+type ModalMode = 'auth' | 'auth_signup_sent' | 'register' | 'success';
+
+interface AuthRegistrationModalProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  hackathonId: string;
+  hackathonSlug: string;
+  hackathonTitle: string;
+  registrationFields: RegistrationField[];
+  initialMode: 'auth' | 'register';
+}
+
+export function AuthRegistrationModal({
+  open,
+  onOpenChange,
+  hackathonId,
+  hackathonSlug,
+  hackathonTitle,
+  registrationFields,
+  initialMode,
+}: AuthRegistrationModalProps) {
+  const [mode, setMode] = useState<ModalMode>(initialMode);
+
+  // Reset to initial mode when modal opens
+  function handleOpenChange(nextOpen: boolean) {
+    if (nextOpen) setMode(initialMode);
+    onOpenChange(nextOpen);
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        {mode === 'auth' && (
+          <>
+            <DialogHeader>
+              <DialogTitle>Join {hackathonTitle}</DialogTitle>
+            </DialogHeader>
+            <Tabs defaultValue="login">
+              <TabsList className="w-full">
+                <TabsTrigger value="login" className="flex-1">Sign In</TabsTrigger>
+                <TabsTrigger value="signup" className="flex-1">Create Account</TabsTrigger>
+              </TabsList>
+              <TabsContent value="login" className="pt-4">
+                <LoginForm onSuccess={() => setMode('register')} />
+              </TabsContent>
+              <TabsContent value="signup" className="pt-4">
+                <SignupForm onSuccess={() => setMode('auth_signup_sent')} />
+              </TabsContent>
+            </Tabs>
+          </>
+        )}
+
+        {mode === 'auth_signup_sent' && (
+          <>
+            <DialogHeader>
+              <DialogTitle>Check your inbox</DialogTitle>
+            </DialogHeader>
+            <p className="text-muted-foreground text-sm">
+              We've sent you a verification email. Click the link to verify your account, then
+              return here and click "Register Now" to complete your registration.
+            </p>
+            <Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
+          </>
+        )}
+
+        {mode === 'register' && (
+          <>
+            <DialogHeader>
+              <DialogTitle>Register for {hackathonTitle}</DialogTitle>
+            </DialogHeader>
+            <RegistrationForm
+              hackathonId={hackathonId}
+              fields={registrationFields}
+              onSuccess={() => setMode('success')}
+            />
+          </>
+        )}
+
+        {mode === 'success' && (
+          <div className="space-y-4 py-2 text-center">
+            <CheckCircle2 className="mx-auto size-12 text-green-500" />
+            <h3 className="font-heading text-xl font-semibold">You're registered!</h3>
+            <p className="text-sm text-muted-foreground">You can now find or create a team.</p>
+            <div className="flex justify-center gap-3">
+              <Button variant="outline" asChild onClick={() => onOpenChange(false)}>
+                <Link href={`/hackathons/${hackathonSlug}/teams`}>Find a Team</Link>
+              </Button>
+              <Button asChild onClick={() => onOpenChange(false)}>
+                <Link href={`/hackathons/${hackathonSlug}/teams/new`}>Create a Team</Link>
+              </Button>
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+```
+
+**Design decisions:**
+- Sign-up in modal → email verification required → two-session flow. On return, the user is logged in and verified; clicking "Register Now" on the landing page now shows the `'register'` CTA state, opening the modal directly in register mode. This is the correct V1 UX — it avoids building a full post-verification redirect chain through the modal.
+- `mode` resets to `initialMode` each time the modal opens (`handleOpenChange`). This prevents the success state from persisting when the user closes and reopens the modal.
+- "Create a Team" links to `/hackathons/[slug]/teams/new`, which is built in Part 3. The link is safe to include in Part 2 even before Part 3 exists — it's only reachable after successful registration.
+
+---
+
+### 2.7 Registration Form (P2.R4)
+
+#### New file: `src/app/(public)/hackathons/[slug]/_components/registration-form.tsx`
+
+```typescript
+'use client';
+
+import { useState, useMemo } from 'react';
+import { useSession } from 'next-auth/react';
+import { useForm, Controller } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
+import { toast } from 'sonner';
+
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
+import { FormMessage } from '@/components/ui/form';
+import type { RegistrationField } from '@/db/schema';
+
+interface RegistrationFormProps {
+  hackathonId: string;
+  fields: RegistrationField[];
+  onSuccess: () => void;
+}
+
+export function RegistrationForm({ hackathonId, fields, onSuccess }: RegistrationFormProps) {
+  const { data: session } = useSession();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [serverError, setServerError] = useState<string | null>(null);
+
+  // Build Zod schema dynamically from custom fields
+  const schema = useMemo(() => {
+    const customShape: Record<string, z.ZodTypeAny> = {};
+    for (const field of fields) {
+      customShape[field.id] = field.required
+        ? z.string().min(1, `${field.label} is required`)
+        : z.string().optional().default('');
+    }
+    return z.object({
+      designation: z.string().optional().default(''),
+      department: z.string().optional().default(''),
+      isDiscoverable: z.boolean().default(true),
+      ...customShape,
+    });
+  }, [fields]);
+
+  type FormValues = z.infer<typeof schema>;
+
+  const { control, handleSubmit, register, formState: { errors } } = useForm<FormValues>({
+    resolver: zodResolver(schema),
+    defaultValues: { designation: '', department: '', isDiscoverable: true },
+  });
+
+  async function onSubmit(data: FormValues) {
+    setIsSubmitting(true);
+    setServerError(null);
+
+    // Merge designation, department, and custom fields into formData
+    const { isDiscoverable, designation, department, ...customValues } = data;
+    const formData: Record<string, string> = {};
+    if (designation) formData.designation = designation;
+    if (department) formData.department = department;
+    for (const field of fields) {
+      const val = customValues[field.id as keyof typeof customValues];
+      if (val) formData[field.id] = val as string;
+    }
+
+    try {
+      const res = await fetch(`/api/hackathons/${hackathonId}/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ formData, isDiscoverable }),
+      });
+
+      if (!res.ok) {
+        const body = await res.json();
+        setServerError(body.message ?? 'Registration failed. Please try again.');
+        return;
+      }
+
+      onSuccess();
+    } catch {
+      setServerError('Network error. Please check your connection.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+      {serverError && <FormMessage type="error" message={serverError} />}
+
+      {/* Fixed read-only fields */}
+      <div className="space-y-1">
+        <Label>Full Name</Label>
+        <Input value={session?.user?.name ?? ''} readOnly className="opacity-60" />
+      </div>
+      <div className="space-y-1">
+        <Label>Email</Label>
+        <Input value={session?.user?.email ?? ''} readOnly className="opacity-60" />
+      </div>
+
+      {/* Standard optional fields */}
+      <div className="space-y-1">
+        <Label htmlFor="designation">Designation</Label>
+        <Input id="designation" placeholder="e.g. Software Engineer" {...register('designation')} />
+      </div>
+      <div className="space-y-1">
+        <Label htmlFor="department">Department</Label>
+        <Input id="department" placeholder="e.g. Engineering" {...register('department')} />
+      </div>
+
+      {/* Custom fields — rendered in order */}
+      {fields.map((field) => (
+        <div key={field.id} className="space-y-1">
+          <Label htmlFor={field.id}>
+            {field.label}
+            {field.required && <span className="ml-1 text-destructive">*</span>}
+          </Label>
+
+          {field.fieldType === 'text' && (
+            <Input id={field.id} {...register(field.id as keyof FormValues)} />
+          )}
+          {field.fieldType === 'textarea' && (
+            <Textarea id={field.id} {...register(field.id as keyof FormValues)} rows={3} />
+          )}
+          {field.fieldType === 'dropdown' && (
+            <Controller
+              control={control}
+              name={field.id as keyof FormValues}
+              render={({ field: f }) => (
+                <Select onValueChange={f.onChange} defaultValue={f.value as string}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select an option" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(field.options ?? []).map((opt) => (
+                      <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            />
+          )}
+
+          {errors[field.id as keyof FormValues] && (
+            <FormMessage
+              type="error"
+              message={(errors[field.id as keyof FormValues] as { message?: string })?.message ?? 'Required'}
+            />
+          )}
+        </div>
+      ))}
+
+      {/* Discoverability toggle */}
+      <div className="flex items-center justify-between rounded-lg border p-3">
+        <div>
+          <p className="text-sm font-medium">Show me on the participants browse page</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Other participants can find and team up with you.
+          </p>
+        </div>
+        <Controller
+          control={control}
+          name="isDiscoverable"
+          render={({ field: f }) => (
+            <Switch checked={f.value as boolean} onCheckedChange={f.onChange} />
+          )}
+        />
+      </div>
+
+      <Button type="submit" className="w-full" disabled={isSubmitting}>
+        {isSubmitting ? 'Registering...' : 'Register'}
+      </Button>
+    </form>
+  );
+}
+```
+
+**Design decisions:**
+- Zod schema is built dynamically inside `useMemo` from the `fields` prop. This is safe because `fields` is passed from the server and is stable for the lifetime of the component.
+- Custom field values are merged into `formData` keyed by `field.id` (UUID). This allows unambiguous retrieval: `formData[field.id]`. The field label is the display name; the ID is the storage key.
+- `designation` and `department` are stored in `formData` under string keys `'designation'` and `'department'`, not field IDs. They are standard fields with stable keys. Custom fields use UUIDs as keys.
+- The form does not submit on Enter by default (standard HTML form behaviour — only when focus is on a submit button). This prevents accidental submission when filling in text fields.
+
+---
+
+### 2.8 Profile Completion Nudge (P2.R6)
+
+#### New file: `src/app/(public)/hackathons/[slug]/_components/profile-nudge-banner.tsx`
+
+```typescript
+'use client';
+
+import { useState } from 'react';
+import Link from 'next/link';
+import { X } from 'lucide-react';
+
+interface ProfileNudgeBannerProps {
+  hackathonSlug: string;
+  formData: Record<string, string> | null;
+}
+
+export function ProfileNudgeBanner({ hackathonSlug, formData }: ProfileNudgeBannerProps) {
+  const [dismissed, setDismissed] = useState(false);
+
+  const isMissingProfile = !formData?.designation || !formData?.department;
+  if (!isMissingProfile || dismissed) return null;
+
+  return (
+    <div className="flex items-start justify-between rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+      <div className="space-y-0.5">
+        <p className="text-sm font-medium text-amber-600">
+          Complete your hackathon profile
+        </p>
+        <p className="text-xs text-muted-foreground">
+          Adding your designation and department helps team leads find the right fit.{' '}
+          <Link
+            href={`/hackathons/${hackathonSlug}/register`}
+            className="underline underline-offset-4 hover:text-foreground"
+          >
+            Update profile →
+          </Link>
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={() => setDismissed(true)}
+        className="ml-4 shrink-0 text-muted-foreground hover:text-foreground"
+        aria-label="Dismiss"
+      >
+        <X className="size-4" />
+      </button>
+    </div>
+  );
+}
+```
+
+"Update profile" links back to `/hackathons/[slug]/register` — for Part 2, this can re-open the registration modal or be a dedicated profile update page. The exact destination is refined in Part 3. For Part 2, the link is present but the page is a placeholder.
+
+The nudge is rendered in the My Hackathons card and (Part 3) on the team profile page. It checks session-level dismissal only — no API call needed.
+
+---
+
+### 2.9 "My Hackathons" Page (P2.R8)
+
+#### New file: `src/app/(dashboard)/dashboard/[orgSlug]/my-hackathons/page.tsx`
+
+```typescript
+import { auth } from '@/lib/auth/auth';
+import { getRegistrationsByUser } from '@/lib/services/registration-service';
+import { getStorageProvider } from '@/lib/storage';
+import { MyHackathonCard } from './_components/my-hackathon-card';
+
+export default async function MyHackathonsPage() {
+  const session = await auth();
+  // session is guaranteed non-null by middleware
+  const summaries = await getRegistrationsByUser(session!.user.id);
+  const storage = getStorageProvider();
+
+  const withUrls = await Promise.all(
+    summaries.map(async (s) => ({
+      ...s,
+      coverImageUrl: s.hackathon.coverImageKey
+        ? await storage.getSignedUrl(s.hackathon.coverImageKey)
+        : null,
+    })),
+  );
+
+  return (
+    <div className="space-y-6 p-6">
+      <div>
+        <h1 className="font-heading text-2xl font-semibold">My Hackathons</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Hackathons you're registered for.
+        </p>
+      </div>
+
+      {withUrls.length === 0 ? (
+        <p className="text-muted-foreground">
+          You haven't registered for any hackathons yet.
+        </p>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {withUrls.map((s) => (
+            <MyHackathonCard key={s.registrationId} summary={{ ...s, coverImageUrl: s.coverImageUrl ?? null }} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+#### New file: `src/app/(dashboard)/dashboard/[orgSlug]/my-hackathons/_components/my-hackathon-card.tsx`
+
+Client component (needs `Date.now()` for status labels and potential future countdown).
+
+Props: `{ summary: UserHackathonSummary & { coverImageUrl: string | null } }`
+
+Card content:
+- Cover image (16:9, `next/image`) or gradient fallback (same CSS tokens as public landing)
+- Hackathon title (font-heading) + status badge
+- Team status section:
+  - `team === null` → muted "No Team" badge + "Find a Team" + "Create a Team" links
+  - `team.adminStatus === 'approved'` → team name with member count, link to team page
+  - `team.adminStatus === 'pending_review'` → amber "Under Review" badge + explanatory text
+  - `team.adminStatus === 'rejected'` → red "Not Approved" badge + "Contact the organiser"
+- Profile nudge: if `summary.formData?.designation` or `summary.formData?.department` missing → amber dot + "Complete profile" link
+
+#### New file: `src/app/(dashboard)/dashboard/[orgSlug]/my-hackathons/loading.tsx`
+
+Skeleton grid matching the card layout (same approach as `hackathons/loading.tsx`).
+
+---
+
+### 2.10 Sidebar: "My Hackathons" Link (P2.R9)
+
+Modify `src/app/(dashboard)/_components/app-sidebar.tsx`.
+
+Add a "My Hackathons" nav item in the org-scoped navigation between "Dashboard" and "Hackathons":
+
+```typescript
+{
+  title: 'My Hackathons',
+  href: `/dashboard/${orgSlug}/my-hackathons`,
+  icon: CalendarCheck2,
+}
+```
+
+Import `CalendarCheck2` from `lucide-react`. This link is visible to all authenticated org members (not admin-only).
+
+---
+
+### 2.11 Admin Participant Roster (P2.R10)
+
+Route: `/dashboard/[orgSlug]/hackathons/[hackathonId]/participants`
+
+Admin-only. The sub-nav link from the hackathon management context is built in Part 4 (P4.R3). The page itself is built here.
+
+#### New file: `src/app/(dashboard)/dashboard/[orgSlug]/hackathons/[hackathonId]/participants/page.tsx`
+
+```typescript
+import { auth } from '@/lib/auth/auth';
+import { requireOrgRole } from '@/lib/auth/require-org-role';
+import { getHackathonById } from '@/lib/services/hackathon-service';
+import {
+  getRegistrationsByHackathon,
+  getRegistrationFields,
+} from '@/lib/services/registration-service';
+import { ParticipantsTable } from './_components/participants-table';
+
+export default async function ParticipantsPage({
+  params,
+}: {
+  params: Promise<{ orgSlug: string; hackathonId: string }>;
+}) {
+  const { orgSlug, hackathonId } = await params;
+  const session = await auth();
+  // requireOrgRole check
+  const hackathon = await getHackathonById(hackathonId);
+  if (!hackathon) notFound();
+
+  const [registrations, fields] = await Promise.all([
+    getRegistrationsByHackathon(hackathonId),
+    getRegistrationFields(hackathonId),
+  ]);
+
+  const registeredCount = registrations.length;
+  const participatingCount = registrations.filter((r) => r.team !== null).length;
+
+  return (
+    <div className="space-y-6 p-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="font-heading text-2xl font-semibold">Participants</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {hackathon.hackathon.title}
+          </p>
+        </div>
+        <a
+          href={`/api/hackathons/${hackathonId}/registrations/export`}
+          download
+          className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium hover:bg-accent"
+        >
+          Export CSV
+        </a>
+      </div>
+
+      {/* Distinct registration vs participation counts — PRD Key Decision #2 */}
+      <div className="flex gap-4">
+        <div className="rounded-lg border px-4 py-3">
+          <p className="text-2xl font-semibold">{registeredCount}</p>
+          <p className="text-sm text-muted-foreground">Registered</p>
+        </div>
+        <div className="rounded-lg border px-4 py-3">
+          <p className="text-2xl font-semibold">{participatingCount}</p>
+          <p className="text-sm text-muted-foreground">Participating</p>
+        </div>
+      </div>
+
+      <ParticipantsTable
+        registrations={registrations}
+        fields={fields}
+        orgSlug={orgSlug}
+        hackathonId={hackathonId}
+      />
+    </div>
+  );
+}
+```
+
+#### New file: `src/app/(dashboard)/dashboard/[orgSlug]/hackathons/[hackathonId]/participants/_components/participants-table.tsx`
+
+Client component with local filter/search state.
+
+```typescript
+'use client';
+
+interface ParticipantsTableProps {
+  registrations: RegistrationWithUser[];
+  fields: RegistrationField[];
+  orgSlug: string;
+  hackathonId: string;
+}
+```
+
+Filters (all client-side — no API calls):
+- Search input: filters on `r.user.name` and `r.user.email` (case-insensitive)
+- "Has Team" / "No Team" / "All" pill selector
+- Track pill selector — unique track names extracted from registrations
+
+Table columns: Name, Email, Registered (date), Team (linked team name or "—"), Track (or "—"), Discoverable (green/muted badge), plus one column per `field` in `fields` (show `r.formData?.[field.id] ?? '—'`).
+
+Empty state: "No participants yet."
+
+#### New file: `src/app/(dashboard)/dashboard/[orgSlug]/hackathons/[hackathonId]/participants/loading.tsx`
+
+Table skeleton.
+
+**Design decisions:**
+- "Export CSV" uses a plain `<a href="..." download>` — no client-side fetch or blob needed. The `/registrations/export` route returns `Content-Disposition: attachment` which triggers the browser download directly.
+- The two counts ("Registered" and "Participating") are explicitly rendered as separate stat chips, never combined. This implements PRD Key Decision #2.
+- All filtering is client-side. At V1 participant counts (hundreds), this is fine. Avoid a round-trip API call for filter changes — it would make the UX feel slow.
+
+---
+
+### 2.12 Files Changed Summary
+
+| File | Action | Reason |
+|------|--------|--------|
+| `src/components/ui/switch.tsx` | Created (shadcn) | Boolean toggles (requires_approval, isDiscoverable) |
+| `src/components/ui/textarea.tsx` | Created (shadcn) | Textarea field type in registration form |
+| `src/lib/services/registration-service.ts` | Modified | Add `getRegistrationsByUser`, `updateRegistration` |
+| `src/lib/services/hackathon-service.ts` | Modified | Add optional `registrationFields` to `HackathonWithRelations`; load in `getHackathonById` |
+| `src/lib/validations/registration.ts` | Modified | Add `updateRegistrationSchema` |
+| `src/app/api/hackathons/[hackathonId]/register/route.ts` | Created | POST create registration |
+| `src/app/api/hackathons/[hackathonId]/registration/route.ts` | Created | GET own status, PATCH update |
+| `src/app/api/hackathons/[hackathonId]/registration-fields/route.ts` | Created | GET (public), POST upsert (admin) |
+| `src/app/api/hackathons/[hackathonId]/registrations/route.ts` | Created | GET roster (admin) |
+| `src/app/api/hackathons/[hackathonId]/registrations/export/route.ts` | Created | GET CSV (admin) |
+| `src/app/api/user/hackathons/route.ts` | Created | GET user's hackathon list |
+| `src/app/(auth)/login/_components/login-form.tsx` | Modified | Add optional `onSuccess?` prop |
+| `src/app/(auth)/signup/_components/signup-form.tsx` | Modified | Add optional `onSuccess?` prop |
+| `src/app/(dashboard)/dashboard/[orgSlug]/hackathons/create/_components/wizard-shell.tsx` | Modified | Insert Step 6, renumber 7–9, update all step logic |
+| `src/app/(dashboard)/dashboard/[orgSlug]/hackathons/create/_components/step-participation.tsx` | Created | Step 6: requires_approval toggle + custom fields |
+| `src/app/(dashboard)/dashboard/[orgSlug]/hackathons/[hackathonId]/edit/page.tsx` | Modified | Load and pass `registrationFields` to wizard in edit mode |
+| `src/app/(public)/hackathons/[slug]/page.tsx` | Modified | Server-side CTA state + registrationFields fetch |
+| `src/app/(public)/hackathons/[slug]/_components/landing-hero.tsx` | Modified | Add `ctaState` + `registrationFields` props, render `RegistrationCta` |
+| `src/app/(public)/hackathons/[slug]/_components/registration-cta.tsx` | Created | State-aware CTA button + modal host |
+| `src/app/(public)/hackathons/[slug]/_components/auth-registration-modal.tsx` | Created | Dialog: auth → register → success |
+| `src/app/(public)/hackathons/[slug]/_components/registration-form.tsx` | Created | Dynamic registration form |
+| `src/app/(public)/hackathons/[slug]/_components/profile-nudge-banner.tsx` | Created | Dismissible profile nudge |
+| `src/app/(dashboard)/_components/app-sidebar.tsx` | Modified | Add "My Hackathons" nav link |
+| `src/app/(dashboard)/dashboard/[orgSlug]/my-hackathons/page.tsx` | Created | My Hackathons page |
+| `src/app/(dashboard)/dashboard/[orgSlug]/my-hackathons/loading.tsx` | Created | Skeleton |
+| `src/app/(dashboard)/dashboard/[orgSlug]/my-hackathons/_components/my-hackathon-card.tsx` | Created | Hackathon card with team state |
+| `src/app/(dashboard)/dashboard/[orgSlug]/hackathons/[hackathonId]/participants/page.tsx` | Created | Admin participant roster |
+| `src/app/(dashboard)/dashboard/[orgSlug]/hackathons/[hackathonId]/participants/loading.tsx` | Created | Skeleton |
+| `src/app/(dashboard)/dashboard/[orgSlug]/hackathons/[hackathonId]/participants/_components/participants-table.tsx` | Created | Filterable participant table |
+
+---
+
+### 2.13 Implementation Increments
+
+**Increment 1: API Routes + Service Methods**
+
+Backend-first. No UI. All data layer additions before any components.
+
+1. Add `getRegistrationsByUser` and `updateRegistration` to `registration-service.ts`
+2. Add `updateRegistrationSchema` to `validations/registration.ts`
+3. Add optional `registrationFields` to `HackathonWithRelations` in `hackathon-service.ts`; load in `getHackathonById`
+4. Create all 6 API route files: `register`, `registration`, `registration-fields`, `registrations`, `registrations/export`, `user/hackathons`
+5. `npx tsc --noEmit`
+
+**Verify:** All routes compile. Test `POST /register` returns 201 on valid input, 409 on duplicate, 403 on closed registration. Test `GET /registration-fields` returns empty array for hackathon with no fields. `tsc` passes cleanly.
+
+---
+
+**Increment 2: Wizard Step 6 — Participation Settings**
+
+1. `npx shadcn@latest add switch textarea`
+2. Create `step-participation.tsx`
+3. Modify `wizard-shell.tsx` — follow section 2.4 changes precisely: STEPS, state, `getFurthestStep`, `handleNext`, footer condition, no-next-button list, `getStepStatus`, `renderStepContent`, `visitedSteps` init
+4. Modify `edit/page.tsx` to load registration fields and pass to wizard
+5. `npx next build`
+
+**Verify:** Create wizard flows through 9 steps. Step 6 (Participation) sits between Team Rules and Prizes. Enabling requires_approval toggle and adding fields → saves to DB → edit mode re-loads them. Review step is now Step 9.
+
+---
+
+**Increment 3: Registration Flow (CTA + Modal + Form)**
+
+1. Modify `login-form.tsx` — add `onSuccess?` prop
+2. Modify `signup-form.tsx` — add `onSuccess?` prop
+3. Create `registration-cta.tsx`
+4. Create `auth-registration-modal.tsx`
+5. Create `registration-form.tsx`
+6. Create `profile-nudge-banner.tsx`
+7. Modify `landing-hero.tsx` — add props, render `RegistrationCta`
+8. Modify `landing page.tsx` — add CTA state computation
+9. `npx tsc --noEmit`
+
+**Verify:** On a `published` hackathon:
+- Unauthenticated → "Register Now" → auth modal → sign in → registration form → submit → success state
+- Logged-in unregistered → "Register Now" → registration form directly
+- Logged-in registered no team → "Find a Team" button
+- Existing `login/page.tsx` still works (no regression from `onSuccess?` prop)
+- Custom fields configured in wizard Step 6 appear in the registration form
+
+---
+
+**Increment 4: My Hackathons + Sidebar + Admin Roster**
+
+1. Modify `app-sidebar.tsx` — add "My Hackathons" link with `CalendarCheck2` icon
+2. Create `my-hackathons/page.tsx` + `loading.tsx` + `my-hackathon-card.tsx`
+3. Create `participants/page.tsx` + `loading.tsx` + `participants-table.tsx`
+4. `npx tsc --noEmit`
+
+**Verify:**
+- "My Hackathons" appears in the dashboard sidebar for all authenticated users
+- `/dashboard/[orgSlug]/my-hackathons` shows registrations with correct team states (approved, under review, rejected, no team)
+- `/dashboard/[orgSlug]/hackathons/[hackathonId]/participants` loads the roster with "Registered" and "Participating" as distinct counts
+- Search and filters work client-side without page reload
+- "Export CSV" downloads a valid CSV file
+
+---
+
+*Part 2 complete when all 4 increments pass and `npx next build` has zero errors.*
+
+---
+
+*Parts 3–4 will be written after Parts 1–2 are implemented and verified.*
