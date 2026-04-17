@@ -2,7 +2,7 @@
 
 **Document ID:** ARCH-004  
 **Date:** April 17, 2026  
-**Status:** Phase 3 Part 1 Complete (Schema + Data Layer)  
+**Status:** Phase 3 Part 2 Complete (API Routes + UI + Admin Roster)  
 **Update Frequency:** Every development phase
 
 ---
@@ -165,20 +165,31 @@ hackforge/                              # PROJECT ROOT
     │   │   │       │   ├── create/
     │   │   │       │   │   ├── page.tsx  # Wizard entry (server: auth + draft detection + templates)
     │   │   │       │   │   └── _components/
-    │   │   │       │   │       ├── wizard-shell.tsx     # Step indicator + navigation + state manager
-    │   │   │       │   │       ├── step-template.tsx    # Step 1: Choose Template
-    │   │   │       │   │       ├── step-basic-info.tsx  # Step 2: Title, desc, cover, slug
-    │   │   │       │   │       ├── step-tracks.tsx      # Step 3: Tracks (DnD reorder)
-    │   │   │       │   │       ├── step-timeline.tsx    # Step 4: Phase dates
-    │   │   │       │   │       ├── step-team-rules.tsx  # Step 5: Team size, visibility
-    │   │   │       │   │       ├── step-prizes.tsx      # Step 6: Prizes (DnD reorder)
-    │   │   │       │   │       ├── step-rules-faqs.tsx  # Step 7: Tiptap rich text editors
-    │   │   │       │   │       ├── step-review.tsx      # Step 8: Review & Publish
-    │   │   │       │   │       ├── image-crop-modal.tsx # 16:9 cover image cropper
-    │   │   │       │   │       └── tiptap-editor.tsx    # Reusable Tiptap editor w/ toolbar
+    │   │   │       │   │       ├── wizard-shell.tsx       # 9-step indicator + navigation + state manager
+    │   │   │       │   │       ├── step-template.tsx      # Step 1: Choose Template
+    │   │   │       │   │       ├── step-basic-info.tsx    # Step 2: Title, desc, cover, slug
+    │   │   │       │   │       ├── step-tracks.tsx        # Step 3: Tracks (DnD reorder)
+    │   │   │       │   │       ├── step-timeline.tsx      # Step 4: Phase dates
+    │   │   │       │   │       ├── step-team-rules.tsx    # Step 5: Team size, visibility
+    │   │   │       │   │       ├── step-participation.tsx # Step 6: Requires-approval + custom reg fields (DnD)
+    │   │   │       │   │       ├── step-prizes.tsx        # Step 7: Prizes (DnD reorder)
+    │   │   │       │   │       ├── step-rules-faqs.tsx    # Step 8: Tiptap rich text editors
+    │   │   │       │   │       ├── step-review.tsx        # Step 9: Review & Publish
+    │   │   │       │   │       ├── image-crop-modal.tsx   # 16:9 cover image cropper
+    │   │   │       │   │       └── tiptap-editor.tsx      # Reusable Tiptap editor w/ toolbar
     │   │   │       │   └── [hackathonId]/
-    │   │   │       │       └── edit/
-    │   │   │       │           └── page.tsx  # Edit wizard (server: loads hackathon + templates)
+    │   │   │       │       ├── edit/
+    │   │   │       │       │   └── page.tsx  # Edit wizard (server: loads hackathon + registrationFields)
+    │   │   │       │       └── participants/
+    │   │   │       │           ├── page.tsx     # Admin roster: registered vs participating counts, CSV export
+    │   │   │       │           ├── loading.tsx  # Table skeleton
+    │   │   │       │           └── _components/
+    │   │   │       │               └── participants-table.tsx  # Client: search + team/track filters + custom fields
+    │   │   │       ├── my-hackathons/
+    │   │   │       │   ├── page.tsx     # Registered hackathons for current user with signed cover images
+    │   │   │       │   ├── loading.tsx  # Card grid skeleton
+    │   │   │       │   └── _components/
+    │   │   │       │       └── my-hackathon-card.tsx  # Card: cover, status badge, team state, profile nudge
     │   │   │       └── settings/
     │   │   │           └── page.tsx     # Placeholder (future phase)
     │   │   └── admin/
@@ -196,16 +207,20 @@ hackforge/                              # PROJECT ROOT
     │   │           ├── page.tsx         # Landing page (SSR + generateMetadata for SEO/OG)
     │   │           ├── not-found.tsx    # Styled 404 for invalid/draft/archived slugs
     │   │           └── _components/
-    │   │               ├── landing-hero.tsx      # Cover image/gradient, title, status, CTA
-    │   │               ├── share-buttons.tsx     # Copy Link, X, LinkedIn, WhatsApp (client)
-    │   │               ├── landing-about.tsx     # Description section
-    │   │               ├── landing-tracks.tsx    # Track cards (single inline / multi grid)
-    │   │               ├── landing-timeline.tsx  # Horizontal (lg+) / vertical timeline
-    │   │               ├── landing-prizes.tsx    # Prize cards with rank styling
-    │   │               ├── landing-rules.tsx     # Rich text (prose prose-invert)
-    │   │               ├── landing-faqs.tsx      # Accordion with CSS grid animation (client)
-    │   │               ├── landing-nav.tsx       # Sticky scroll-spy nav (client)
-    │   │               └── landing-footer.tsx    # "Powered by HackForge"
+    │   │               ├── landing-hero.tsx            # Cover image/gradient, title, status, RegistrationCta
+    │   │               ├── registration-cta.tsx        # 8-variant CtaState button + modal host (client)
+    │   │               ├── auth-registration-modal.tsx # 4-mode dialog: auth → signup → register → success (client)
+    │   │               ├── registration-form.tsx       # Dynamic reg form with custom fields + discoverability (client)
+    │   │               ├── profile-nudge-banner.tsx    # Dismissible amber nudge for incomplete profile (client)
+    │   │               ├── share-buttons.tsx           # Copy Link, X, LinkedIn, WhatsApp (client)
+    │   │               ├── landing-about.tsx           # Description section
+    │   │               ├── landing-tracks.tsx          # Track cards (single inline / multi grid)
+    │   │               ├── landing-timeline.tsx        # Horizontal (lg+) / vertical timeline
+    │   │               ├── landing-prizes.tsx          # Prize cards with rank styling
+    │   │               ├── landing-rules.tsx           # Rich text (prose prose-invert)
+    │   │               ├── landing-faqs.tsx            # Accordion with CSS grid animation (client)
+    │   │               ├── landing-nav.tsx             # Sticky scroll-spy nav (client)
+    │   │               └── landing-footer.tsx          # "Powered by HackForge"
     │   │
     │   └── api/
     │       ├── auth/
@@ -243,10 +258,23 @@ hackforge/                              # PROJECT ROOT
     │       │       ├── phases/
     │       │       │   └── [phaseId]/
     │       │       │       └── route.ts     # PATCH update phase dates/name
-    │       │       └── prizes/
-    │       │           ├── route.ts         # POST add prize
-    │       │           └── [prizeId]/
-    │       │               └── route.ts     # PATCH edit / DELETE remove prize
+    │       │       ├── prizes/
+    │       │       │   ├── route.ts         # POST add prize
+    │       │       │   └── [prizeId]/
+    │       │       │       └── route.ts     # PATCH edit / DELETE remove prize
+    │       │       ├── register/
+    │       │       │   └── route.ts         # POST register participant (201/409/403)
+    │       │       ├── registration/
+    │       │       │   └── route.ts         # GET own registration status / PATCH update profile
+    │       │       ├── registration-fields/
+    │       │       │   └── route.ts         # GET fields (public) / POST upsert (admin)
+    │       │       └── registrations/
+    │       │           ├── route.ts         # GET full roster with user + team info (admin)
+    │       │           └── export/
+    │       │               └── route.ts     # GET CSV download with custom field columns (admin)
+    │       ├── user/
+    │       │   └── hackathons/
+    │       │       └── route.ts             # GET current user's registered hackathons
     │       ├── upload/
     │       │   └── image/
     │       │       └── route.ts             # POST upload image (cover/prize)
@@ -281,8 +309,10 @@ hackforge/                              # PROJECT ROOT
     │       ├── sidebar.tsx
     │       ├── skeleton.tsx
     │       ├── sonner.tsx
+    │       ├── switch.tsx
     │       ├── table.tsx
     │       ├── tabs.tsx
+    │       ├── textarea.tsx
     │       └── tooltip.tsx
     │
     ├── db/
@@ -332,9 +362,9 @@ hackforge/                              # PROJECT ROOT
         │   ├── token-service.ts       # SHA-256 token generation + hashing
         │   ├── org-service.ts         # Org CRUD, membership, invites
         │   ├── admin-service.ts       # Platform-wide queries (super_admin)
-        │   ├── hackathon-service.ts   # Hackathon CRUD, slug gen, stats, manual transitions
+        │   ├── hackathon-service.ts   # Hackathon CRUD, slug gen, stats, transitions; slug mangling on soft-delete
         │   ├── hackathon-lifecycle.ts # Check-on-access status resolution engine
-        │   ├── registration-service.ts # Registration CRUD, autoRegister, discoverability (Phase 3)
+        │   ├── registration-service.ts # Registration CRUD, autoRegister, discoverability, getRegistrationsByUser, updateRegistration (Phase 3)
         │   ├── team-service.ts        # Team CRUD, membership, join requests, invites, approval (Phase 3)
         │   └── team-up-service.ts     # Team-up request flow between unteamed participants (Phase 3)
         ├── storage/
@@ -347,7 +377,7 @@ hackforge/                              # PROJECT ROOT
             ├── auth.ts                # Zod schemas: signup, login, forgot/reset password
             ├── org.ts                 # Zod schemas: createOrg, invite, changeRole, remove
             ├── hackathon.ts           # Zod schemas: hackathon, track, phase, prize, publish, transition
-            ├── registration.ts        # Zod schemas: createRegistration, registrationField, upsertFields (Phase 3)
+            ├── registration.ts        # Zod schemas: createRegistration, registrationField, upsertFields, updateRegistration (Phase 3)
             ├── team.ts                # Zod schemas: createTeam, updateTeam, joinRequest, inviteByEmail, etc. (Phase 3)
             └── team-up.ts             # Zod schemas: createTeamUpRequest, respondToTeamUpRequest (Phase 3)
 ```
@@ -356,7 +386,7 @@ hackforge/                              # PROJECT ROOT
 
 ## Data Model
 
-> **Note:** All tables below reflect the ACTUAL implemented schema (Phase 1 + Phase 2 + Phase 3 Part 1). Tables in Phase 4+ sections are not yet built.
+> **Note:** All tables below reflect the ACTUAL implemented schema (Phase 1 + Phase 2 + Phase 3 Parts 1–2). Tables in Phase 4+ sections are not yet built.
 
 ### Core Tables (Phase 1 — Implemented)
 
@@ -711,4 +741,4 @@ notification_type: registration, submission, judging, result, announcement
 
 ---
 
-*This document reflects what EXISTS in the codebase as of Phase 3 Part 1 completion (April 17, 2026). It is updated after each development part. Planned tables will be validated against actual implementation during their respective phases.*
+*This document reflects what EXISTS in the codebase as of Phase 3 Part 2 completion (April 17, 2026). It is updated after each development part. Planned tables will be validated against actual implementation during their respective phases.*

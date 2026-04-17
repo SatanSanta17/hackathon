@@ -6,6 +6,41 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Phase 3, Part 2: Registration + Team Formation — API Routes + UI + Admin Roster (April 17, 2026)
+
+#### Added
+- API route `POST /api/hackathons/[hackathonId]/register` — creates registration; returns 201 (created), 409 (already registered), 403 (registration closed/not open); fire-and-forget confirmation email
+- API route `GET/PATCH /api/hackathons/[hackathonId]/registration` — GET returns own registration or 404; PATCH updates designation/department/isDiscoverable via `updateRegistrationSchema`
+- API route `GET/POST /api/hackathons/[hackathonId]/registration-fields` — GET is public (no auth); POST upserts custom fields (admin-only, requires org ownership)
+- API route `GET /api/hackathons/[hackathonId]/registrations` — full roster with user + team info (admin-only)
+- API route `GET /api/hackathons/[hackathonId]/registrations/export` — CSV download with standard columns + one column per custom field; `Content-Disposition: attachment` triggers browser download directly
+- API route `GET /api/user/hackathons` — returns current user's registrations with hackathon + team summary
+- Wizard Step 6 "Participation Settings" (`step-participation.tsx`): requires-approval toggle + drag-and-drop custom registration field builder (up to 10 fields; text, textarea, dropdown types; required toggle per field)
+- `RegistrationCta` component — 8-variant `CtaState` discriminated union drives the CTA button on the landing page: `unauthenticated | register | registration_closed | find_team | under_review | my_team | team_rejected | completed`
+- `AuthRegistrationModal` — 4-mode dialog: `auth` (login/signup tabs) → `auth_signup_sent` (check inbox) → `register` (form) → `success` (find/create team CTAs)
+- `RegistrationForm` — dynamic form with read-only name/email, optional designation/department, custom fields rendered by type, discoverability Switch toggle; Zod schema built in `useMemo` from field config
+- `ProfileNudgeBanner` — dismissible amber banner on landing page when designation/department missing from registration
+- My Hackathons page (`/dashboard/[orgSlug]/my-hackathons`) — server-fetches registrations with signed cover image URLs; card grid with loading skeleton
+- `MyHackathonCard` — shows cover image/gradient, status badge, team state (no team + links / approved + member count / under review / rejected), inline profile nudge
+- Admin Participants page (`/dashboard/[orgSlug]/hackathons/[hackathonId]/participants`) — registered vs participating stat chips, CSV export link, `ParticipantsTable`
+- `ParticipantsTable` — client-side search (name/email), "Has Team / No Team / All" pill filter, track pill filter; table columns: name, email, registered date, team link, track, discoverable badge, + one column per custom field
+- `CalendarCheck2` "My Hackathons" nav link in `AppSidebar` between Dashboard and Hackathons
+
+#### Changed
+- `wizard-shell.tsx`: expanded from 8 to 9 steps; Step 6 "Participation" inserted between Team Rules and Prizes; Steps 6→7, 7→8, 8→9 renumbered throughout; `getFurthestStep`, `handleNext`, footer condition, no-next-button list, `visitedSteps` init, and `renderStepContent` all updated
+- `hackathon-service.ts`: `isSlugAvailable` no longer filters by `deletedAt` (must match DB UNIQUE constraint which covers all rows); `softDeleteHackathon` now mangles slug to `{slug}-deleted-{first-8-chars-of-id}` so the original slug is reusable after deletion
+- `hackathon-service.ts`: `HackathonWithRelations` extended with optional `registrationFields`; `getHackathonById` loads registration fields via Drizzle relation
+- `registration-service.ts`: added `getRegistrationsByUser` (returns `UserHackathonSummary[]` with inline team lookup to avoid circular import) and `updateRegistration`
+- `validations/registration.ts`: added `updateRegistrationSchema` (designation, department, isDiscoverable optional fields)
+- `login-form.tsx`: added optional `onSuccess?` callback — when provided, calls `router.refresh()` then `onSuccess()` instead of redirecting; standalone login page unaffected
+- `signup-form.tsx`: added optional `onSuccess?` callback — when provided, calls `onSuccess()` on 201 instead of redirecting to `/check-email`; standalone signup page unaffected
+- `landing-hero.tsx`: replaced static disabled `<Button>` with `<RegistrationCta>` component; added `ctaState`, `hackathonSlug`, `registrationFields` props
+- `hackathons/[slug]/page.tsx`: added server-side CTA state computation using `auth()`, `getRegistrationByUserAndHackathon`, `getUserTeamForHackathon`, and `isRegOpen()` helper; fetches `registrationFields` and passes all to `LandingHero`
+
+#### Fixed
+- Slug uniqueness bug: `isSlugAvailable` previously filtered soft-deleted rows with `isNull(deletedAt)`, allowing slug conflicts with the DB UNIQUE constraint — removed the filter to match DB behaviour
+- `registration-form.tsx` TypeScript: replaced `z.infer<typeof schema>` (dynamically-built schema) with explicit `FormValues` type + `resolver: zodResolver(schema) as any` to resolve `Resolver` type mismatch
+
 ### Phase 3, Part 1: Registration + Team Formation — Schema & Data Layer (April 17, 2026)
 
 #### Added

@@ -359,6 +359,101 @@ These features are intentionally deferred to keep V1 shippable in 3 weeks:
 
 ---
 
+## Identified Gaps & Design Debt
+
+*Captured 2026-04-17. These are open questions and missing features discovered during V1 build. Each needs a PRD/TRD before implementation.*
+
+---
+
+### G1 — User Flow: No Org Required
+
+**Problem:** Currently every authenticated user must create an org to do anything useful. There is no general user experience for someone who is just a hackathon participant (no admin role, no org they own).
+
+**What's needed:**
+- Post-login landing for users with no org membership: show "My Hackathons" (registrations) + option to create or join an org — not a forced org-creation wall
+- Sidebar design that works for both org-member users (full nav) and org-less participants (just My Hackathons + account settings)
+- "My Orgs" switcher if a user belongs to multiple orgs
+
+**Impact:** Medium — affects every participant-only user. For InMobi V1 all users will be in the same org, so not blocking, but must fix before any external use.
+
+---
+
+### G2 — Public Platform Landing Page
+
+**Problem:** There is no root `/` experience for HackForge as a platform. Opening the site as a logged-out user shows nothing useful.
+
+**What's needed:**
+- Root `/` page: hero + list of all public hackathons across all orgs
+- Top nav with "Sign In" CTA for logged-out users; user avatar + org switcher for logged-in users
+- Search/filter by status (open, upcoming, active)
+
+**Impact:** Low for InMobi V1 (internal, users land via direct link), but required before any external customer or public-facing use.
+
+---
+
+### G3 — User Profile / Account Settings
+
+**Problem:** Once signed up, a user cannot edit their own name, email, password, or avatar. The forgot-password flow covers credential recovery but there is no self-service account page.
+
+**What's needed:**
+- `/account` (or `/settings`) page accessible from the user avatar menu in the top nav
+- Edit name, email (with re-verification), change password, upload avatar
+- Accessible regardless of org membership
+
+**Impact:** Medium — typos in name at signup have no fix. Acceptable for InMobi V1 (names are provisioned), but must exist before self-serve SaaS.
+
+---
+
+### G4 — Org Settings CRUD
+
+**Problem:** The `/dashboard/[orgSlug]/settings` page is a placeholder. Org admins cannot edit org name, slug, or logo after creation.
+
+**What's needed:**
+- Edit org name and logo (slug change should be discouraged or locked after first use to avoid broken links)
+- Danger zone: delete org (with confirmation + cascade check)
+- This is already in the sidebar — just needs implementation
+
+**Impact:** Low for V1 (org is set up once), but needed for any org that makes a typo or rebrands.
+
+---
+
+### G5 — Registration Form Templates
+
+**Problem:** The wizard Step 6 (Participation) lets admins build a custom registration form from scratch. There are no pre-built templates to start from (e.g., "Standard Employee Form" with designation, department, skills, team preference).
+
+**What's needed:**
+- A small library of 2–3 starter templates selectable in Step 6 before customising
+- Templates are just pre-populated field sets, not a new data model
+- Hackathon templates (Idea Sprint, Build & Ship, etc.) could pre-select an appropriate registration template
+
+**Impact:** Low for V1 (admins can build manually), but significantly improves time-to-publish for new hackathons.
+
+---
+
+### G6 — Browse Pages: Teams + Participants (Part 3 of TRD-008)
+
+**Problem:** Part 2 of TRD-008 built the admin participant roster. The *public* browse pages — `/hackathons/[slug]/teams` (open teams seeking members) and `/hackathons/[slug]/participants` (discoverable participants seeking teams) — are in Part 3, which has not been written yet.
+
+**What's needed:**
+- Public team browse: list open teams, filter by track, join request CTA
+- Public participant browse (for team leads): list discoverable participants, "Team Up" CTA
+- Join request workflow: request → lead approves/rejects → notifications
+- These are the core team formation UX flows; the data model is already built
+
+**Impact:** High — team formation is not usable without these pages. Part 3 TRD must be written next.
+
+---
+
+### G7 — Track Selection Clarification (Not a Gap)
+
+Track selection is intentionally on the *team*, not the registration. A solo registrant doesn't know their track until they form a team around a problem statement. Track is set at team creation time (`teams.track_id`). This is correct. No action needed.
+
+---
+
+*These gaps should be triaged before writing the V2 roadmap. G3, G4 (user + org settings) are strong candidates for a small dedicated phase between V1 and V2. G1 (user flow) and G2 (platform landing) are prerequisites for any external customer. G5 (form templates) is a quality-of-life addition. G6 (browse pages) is already scheduled in TRD-008 Part 3.*
+
+---
+
 ## Risk Mitigations for V1
 
 | Risk | Mitigation |
