@@ -812,6 +812,7 @@ export async function getTeamInviteByToken(token: string): Promise<{
   hackathonTitle: string;
   hackathonSlug: string;
 } | null> {
+  const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
   const [row] = await db
     .select({
       id: teamInvites.id,
@@ -825,7 +826,7 @@ export async function getTeamInviteByToken(token: string): Promise<{
     .from(teamInvites)
     .innerJoin(teams, eq(teams.id, teamInvites.teamId))
     .innerJoin(hackathons, eq(hackathons.id, teams.hackathonId))
-    .where(eq(teamInvites.token, token))
+    .where(eq(teamInvites.token, hashedToken))
     .limit(1);
 
   return row ?? null;
