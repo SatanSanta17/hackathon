@@ -3,9 +3,20 @@ import { NextResponse } from 'next/server';
 import { ERR } from '@/lib/constants/error-codes';
 import { resetPasswordSchema } from '@/lib/validations/auth';
 import { resetPassword } from '@/lib/services/auth-service';
+import { rateLimit, getClientIp, resetPasswordLimiter } from '@/lib/rate-limit';
 
 export async function POST(request: Request) {
   console.log('[api/auth/reset-password] POST');
+
+  const ip = getClientIp(request);
+  const limit = await rateLimit(ip, resetPasswordLimiter);
+  if (!limit.success) {
+    console.log('[api/auth/reset-password] Rate limited:', ip);
+    return NextResponse.json(
+      { message: 'Too many requests. Please try again later.' },
+      { status: 429, headers: { 'Retry-After': String(limit.retryAfter ?? 60) } },
+    );
+  }
 
   try {
     const body = await request.json();

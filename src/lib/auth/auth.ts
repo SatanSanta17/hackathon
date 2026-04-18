@@ -6,6 +6,7 @@ import { eq } from 'drizzle-orm';
 import { db } from '@/db';
 import { users } from '@/db/schema';
 import { loginSchema } from '@/lib/validations/auth';
+import { rateLimit, loginLimiter } from '@/lib/rate-limit';
 import './types'; // NextAuth module augmentation
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
@@ -26,6 +27,14 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         }
 
         const { email, password } = parsed.data;
+
+        // Rate limit by email — deliberately returns null (not a named error) to
+        // avoid leaking whether an email is registered on the platform.
+        const limit = await rateLimit(email.toLowerCase(), loginLimiter);
+        if (!limit.success) {
+          console.log('[auth] Login rate limited:', email);
+          return null;
+        }
 
         const user = await db.query.users.findFirst({
           where: eq(users.email, email.toLowerCase()),

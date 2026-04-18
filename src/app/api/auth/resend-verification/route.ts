@@ -3,9 +3,20 @@ import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth/auth';
 import { ERR } from '@/lib/constants/error-codes';
 import { resendVerificationEmail } from '@/lib/services/auth-service';
+import { rateLimit, getClientIp, resendVerificationLimiter } from '@/lib/rate-limit';
 
-export async function POST() {
+export async function POST(request: Request) {
   console.log('[api/auth/resend-verification] POST');
+
+  const ip = getClientIp(request);
+  const limit = await rateLimit(ip, resendVerificationLimiter);
+  if (!limit.success) {
+    console.log('[api/auth/resend-verification] Rate limited:', ip);
+    return NextResponse.json(
+      { message: 'Too many requests. Please try again later.' },
+      { status: 429, headers: { 'Retry-After': String(limit.retryAfter ?? 60) } },
+    );
+  }
 
   try {
     // Requires authenticated session
