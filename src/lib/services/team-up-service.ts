@@ -2,16 +2,19 @@ import { and, eq } from 'drizzle-orm';
 
 import { db } from '@/db';
 import { hackathons, teamUpRequests, users } from '@/db/schema';
+
+import { ERR } from '@/lib/constants/error-codes';
+import { JOIN_REQUEST_STATUS } from '@/lib/constants/enums';
 import { getEmailService } from '@/lib/email';
 import {
   teamUpAcceptedEmail,
   teamUpDeclinedEmail,
   teamUpRequestEmail,
 } from '@/lib/email/templates';
+
 import { getRegistrationByUserAndHackathon } from '@/lib/services/registration-service';
-import { ERR } from '@/lib/constants/error-codes';
-import { JOIN_REQUEST_STATUS } from '@/lib/constants/enums';
 import { addMember, createTeam, getUserTeamForHackathon } from '@/lib/services/team-service';
+
 import type { TeamUpRequest } from '@/db/schema';
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? '';

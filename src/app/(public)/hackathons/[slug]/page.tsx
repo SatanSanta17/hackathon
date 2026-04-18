@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import type { Metadata } from 'next';
 
 import { auth } from '@/lib/auth/auth';
+import { HACKATHON_STATUS, TEAM_ADMIN_STATUS } from '@/lib/constants/enums';
 import { getHackathonBySlug } from '@/lib/services/hackathon-service';
 import { getRegistrationByUserAndHackathon, getRegistrationFields } from '@/lib/services/registration-service';
 import { getUserTeamForHackathon } from '@/lib/services/team-service';
@@ -160,16 +161,16 @@ export default async function HackathonLandingPage({ params }: PageProps) {
   const registrationFields = await getRegistrationFields(hackathon.id);
 
   function isRegOpen(): boolean {
-    if (hackathon.status === 'completed' || hackathon.status === 'archived') return false;
+    if (hackathon.status === HACKATHON_STATUS.COMPLETED || hackathon.status === HACKATHON_STATUS.ARCHIVED) return false;
     const reg = sortedPhases.find((p) => p.type === 'registration');
-    if (!reg?.startDate || !reg?.endDate) return hackathon.status === 'published';
+    if (!reg?.startDate || !reg?.endDate) return hackathon.status === HACKATHON_STATUS.PUBLISHED;
     const now = new Date();
     return now >= new Date(reg.startDate) && now <= new Date(reg.endDate);
   }
 
   let ctaState: CtaState;
 
-  if (hackathon.status === 'completed') {
+  if (hackathon.status === HACKATHON_STATUS.COMPLETED) {
     ctaState = { type: 'completed' };
   } else if (!session?.user?.id) {
     ctaState = { type: 'unauthenticated' };
@@ -185,9 +186,9 @@ export default async function HackathonLandingPage({ params }: PageProps) {
       const team = await getUserTeamForHackathon(userId, hackathon.id);
       if (!team) {
         ctaState = { type: 'find_team', teamsUrl: `/hackathons/${slug}/teams` };
-      } else if (team.adminStatus === 'pending_review') {
+      } else if (team.adminStatus === TEAM_ADMIN_STATUS.PENDING_REVIEW) {
         ctaState = { type: 'under_review', teamId: team.id };
-      } else if (team.adminStatus === 'rejected') {
+      } else if (team.adminStatus === TEAM_ADMIN_STATUS.REJECTED) {
         ctaState = { type: 'team_rejected' };
       } else {
         ctaState = { type: 'my_team', teamId: team.id, teamUrl: `/hackathons/${slug}/teams/${team.id}` };

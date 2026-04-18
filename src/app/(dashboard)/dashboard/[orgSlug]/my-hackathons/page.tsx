@@ -3,6 +3,7 @@ import { inArray } from 'drizzle-orm';
 import { db } from '@/db';
 import { phases as phasesTable } from '@/db/schema';
 import { auth } from '@/lib/auth/auth';
+import { PHASE_STATUS } from '@/lib/constants/enums';
 import { getRegistrationsByUser } from '@/lib/services/registration-service';
 import { getStorageProvider } from '@/lib/storage';
 import { MyHackathonCard } from './_components/my-hackathon-card';
@@ -29,7 +30,7 @@ export default async function MyHackathonsPage() {
 
   function getActivePhase(hackathonId: string): { label: string; deadline: string } | null {
     const active = allPhases
-      .filter((p) => p.hackathonId === hackathonId && p.status === 'active' && p.endDate)
+      .filter((p) => p.hackathonId === hackathonId && p.status === PHASE_STATUS.ACTIVE && p.endDate)
       .sort((a, b) => a.order - b.order)[0];
     if (!active) return null;
     return { label: active.name, deadline: active.endDate!.toISOString() };

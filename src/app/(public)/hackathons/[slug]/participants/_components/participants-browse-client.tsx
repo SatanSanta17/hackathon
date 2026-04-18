@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 
 import Link from 'next/link';
@@ -38,6 +39,7 @@ export function ParticipantsBrowseClient({
   viewerTeamIsFull,
   incomingTeamUpRequests,
 }: ParticipantsBrowseClientProps) {
+  const router = useRouter();
   const [participants, setParticipants] = useState<DiscoverableParticipant[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -83,7 +85,7 @@ export function ParticipantsBrowseClient({
         setPendingRequests((prev) => prev.filter((r) => r.id !== requestId));
         if (status === 'accepted') {
           toast.success('Team created! Redirecting…');
-          window.location.href = `/hackathons/${hackathonSlug}/teams/${body.teamId}`;
+          router.push(`/hackathons/${hackathonSlug}/teams/${body.teamId}`);
         } else {
           toast.success('Request declined.');
         }

@@ -21,6 +21,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { TEAM_ADMIN_STATUS } from '@/lib/constants/enums';
 import type { AdminTeamRow } from '@/lib/services/team-service';
 
 interface AdminTeamsClientProps {
@@ -31,14 +32,14 @@ interface AdminTeamsClientProps {
 }
 
 function AdminStatusBadge({ status }: { status: AdminTeamRow['adminStatus'] }) {
-  if (status === 'pending_review') {
+  if (status === TEAM_ADMIN_STATUS.PENDING_REVIEW) {
     return (
       <Badge className="border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400">
         Under Review
       </Badge>
     );
   }
-  if (status === 'approved') {
+  if (status === TEAM_ADMIN_STATUS.APPROVED) {
     return (
       <Badge className="border-green-500/40 bg-green-500/10 text-green-600 dark:text-green-400">
         Approved
@@ -73,7 +74,7 @@ export function AdminTeamsClient({
   }, [teams]);
 
   const pendingTeams = useMemo(
-    () => localTeams.filter((t) => t.adminStatus === 'pending_review'),
+    () => localTeams.filter((t) => t.adminStatus === TEAM_ADMIN_STATUS.PENDING_REVIEW),
     [localTeams],
   );
 

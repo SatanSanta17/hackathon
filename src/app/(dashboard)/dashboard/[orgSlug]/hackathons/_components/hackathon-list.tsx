@@ -47,6 +47,7 @@ import {
 } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { cn } from '@/lib/utils';
+import { HACKATHON_STATUS } from '@/lib/constants/enums';
 import type { Hackathon } from '@/lib/services/hackathon-service';
 
 // ---------------------------------------------------------------------------
@@ -170,7 +171,7 @@ export function HackathonList({
     try {
       // Use the publish endpoint for draft → published (has extra validation)
       const url =
-        targetStatus === 'published'
+        targetStatus === HACKATHON_STATUS.PUBLISHED
           ? `/api/hackathons/${hackathonId}/publish`
           : `/api/hackathons/${hackathonId}/transition`;
 
@@ -523,7 +524,7 @@ function HackathonCard({
               )}
 
               {/* Delete draft */}
-              {hackathon.status === 'draft' && (
+              {hackathon.status === HACKATHON_STATUS.DRAFT && (
                 <>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem

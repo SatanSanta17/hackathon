@@ -4,6 +4,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 
 import { Badge } from '@/components/ui/badge';
+import { TEAM_ADMIN_STATUS } from '@/lib/constants/enums';
 import type { UserHackathonSummary } from '@/lib/services/registration-service';
 
 interface MyHackathonCardProps {
@@ -68,7 +69,7 @@ export function MyHackathonCard({ summary, activePhase }: MyHackathonCardProps) 
                 </Link>
               </div>
             </div>
-          ) : team.adminStatus === 'approved' ? (
+          ) : team.adminStatus === TEAM_ADMIN_STATUS.APPROVED ? (
             <Link
               href={`/hackathons/${hackathon.slug}/teams/${team.id}`}
               className="flex items-center gap-1.5 hover:underline"
@@ -78,7 +79,7 @@ export function MyHackathonCard({ summary, activePhase }: MyHackathonCardProps) 
                 · {team.memberCount} member{team.memberCount !== 1 ? 's' : ''}
               </span>
             </Link>
-          ) : team.adminStatus === 'pending_review' ? (
+          ) : team.adminStatus === TEAM_ADMIN_STATUS.PENDING_REVIEW ? (
             <div className="space-y-0.5">
               <Badge className="bg-amber-500/15 text-amber-600 hover:bg-amber-500/15">
                 Under Review

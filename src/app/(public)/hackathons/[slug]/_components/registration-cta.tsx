@@ -9,6 +9,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { HACKATHON_STATUS } from '@/lib/constants/enums';
 import { AuthRegistrationModal } from './auth-registration-modal';
 import type { RegistrationField } from '@/db/schema';
 
@@ -159,7 +160,7 @@ export function RegistrationCta({
         />
       )}
 
-      {hackathonStatus === 'active' && (
+      {hackathonStatus === HACKATHON_STATUS.ACTIVE && (
         <div className="flex gap-4">
           <Link
             href={`/hackathons/${hackathonSlug}/teams`}

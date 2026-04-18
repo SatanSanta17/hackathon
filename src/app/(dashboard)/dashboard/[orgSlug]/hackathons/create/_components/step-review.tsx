@@ -16,6 +16,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
+import { HACKATHON_STATUS } from '@/lib/constants/enums';
 import type {
   Hackathon,
   Phase,
@@ -84,7 +85,7 @@ export function StepReview({
   hackathonStatus = 'draft',
   className,
 }: StepReviewProps) {
-  const isDraft = hackathonStatus === 'draft';
+  const isDraft = hackathonStatus === HACKATHON_STATUS.DRAFT;
   const router = useRouter();
   const [isPublishing, setIsPublishing] = useState(false);
 

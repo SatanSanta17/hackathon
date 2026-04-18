@@ -3,11 +3,13 @@ import { eq } from 'drizzle-orm';
 
 import { db } from '@/db';
 import { users } from '@/db/schema';
-import { createToken, validateToken, markTokenUsed, invalidateTokens } from './token-service';
-import { getEmailService } from '@/lib/email';
-import { verificationEmail, passwordResetEmail } from '@/lib/email/templates';
+
 import { AUTH_CONSTANTS, TOKEN_TYPE } from '@/lib/auth/constants';
 import { ERR } from '@/lib/constants/error-codes';
+import { getEmailService } from '@/lib/email';
+import { verificationEmail, passwordResetEmail } from '@/lib/email/templates';
+
+import { createToken, validateToken, markTokenUsed, invalidateTokens } from './token-service';
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL!;
 

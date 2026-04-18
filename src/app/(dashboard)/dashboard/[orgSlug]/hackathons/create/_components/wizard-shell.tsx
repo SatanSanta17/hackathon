@@ -15,6 +15,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
+import { HACKATHON_STATUS } from '@/lib/constants/enums';
 import { StepTemplate } from './step-template';
 import { StepBasicInfo } from './step-basic-info';
 import { StepTracks } from './step-tracks';
@@ -261,8 +262,8 @@ export function WizardShell({
     }
   }, [currentStep, setCurrentStep]);
 
-  const hackathonStatus = hackathon?.hackathon.status ?? 'draft';
-  const isDraft = hackathonStatus === 'draft';
+  const hackathonStatus = hackathon?.hackathon.status ?? HACKATHON_STATUS.DRAFT;
+  const isDraft = hackathonStatus === HACKATHON_STATUS.DRAFT;
 
   const handleSaveDraft = useCallback(() => {
     if (isDraft) toast.success('Draft saved successfully.');

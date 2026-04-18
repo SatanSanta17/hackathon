@@ -9,6 +9,14 @@ import {
   hackathonTemplates,
   organizations,
 } from '@/db/schema';
+
+import { ERR } from '@/lib/constants/error-codes';
+import { HACKATHON_STATUS, PHASE_STATUS } from '@/lib/constants/enums';
+import { slugify } from '@/lib/utils';
+
+import { applyStatusResolution } from './hackathon-lifecycle';
+import { getRegistrationFields } from './registration-service';
+
 import type {
   Hackathon,
   NewHackathon,
@@ -18,11 +26,6 @@ import type {
   HackathonTemplate,
   RegistrationField,
 } from '@/db/schema';
-import { ERR } from '@/lib/constants/error-codes';
-import { HACKATHON_STATUS, PHASE_STATUS } from '@/lib/constants/enums';
-import { slugify } from '@/lib/utils';
-import { applyStatusResolution } from './hackathon-lifecycle';
-import { getRegistrationFields } from './registration-service';
 
 // ---------------------------------------------------------------------------
 // Types
