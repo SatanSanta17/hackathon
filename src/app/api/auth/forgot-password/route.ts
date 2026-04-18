@@ -1,20 +1,25 @@
 import { NextResponse } from 'next/server';
 
 import { forgotPasswordSchema } from '@/lib/validations/auth';
-import { requestPasswordReset } from '@/lib/services/auth-service';
 import { rateLimit, getClientIp, forgotPasswordLimiter } from '@/lib/rate-limit';
+
+import { requestPasswordReset } from '@/lib/services/auth-service';
 
 export async function POST(request: Request) {
   console.log('[api/auth/forgot-password] POST');
 
-  const ip = getClientIp(request);
-  const limit = await rateLimit(ip, forgotPasswordLimiter);
-  if (!limit.success) {
-    console.log('[api/auth/forgot-password] Rate limited:', ip);
-    return NextResponse.json(
-      { message: 'Too many requests. Please try again later.' },
-      { status: 429, headers: { 'Retry-After': String(limit.retryAfter ?? 60) } },
-    );
+  try {
+    const ip = getClientIp(request);
+    const limit = await rateLimit(ip, forgotPasswordLimiter);
+    if (!limit.success) {
+      console.log('[api/auth/forgot-password] Rate limited:', ip);
+      return NextResponse.json(
+        { message: 'Too many requests. Please try again later.' },
+        { status: 429, headers: { 'Retry-After': String(limit.retryAfter ?? 60) } },
+      );
+    }
+  } catch (rateLimitErr) {
+    console.error('[api/auth/forgot-password] Rate limit check failed, failing open:', rateLimitErr);
   }
 
   try {

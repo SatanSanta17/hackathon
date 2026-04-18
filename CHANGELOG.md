@@ -6,6 +6,20 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Phase 3.5 — Core Hardening, Part 1: Rate Limiting (April 18, 2026)
+
+#### Security
+- New `src/lib/rate-limit.ts` — Upstash Redis sliding-window rate limiters for all auth endpoints: signup (5/15 min), forgot-password (3/15 min), resend-verification (3/15 min), reset-password (5/15 min), login (10/15 min per email)
+- Rate limiting applied to all five auth routes before business logic; fail-open on Redis errors (Redis unavailability never blocks auth)
+- `getClientIp` extracts client IP from `x-forwarded-for` header for correct IP resolution behind Vercel's load balancer
+- Login rate-limited by email address (not IP) to prevent targeted brute-force; returns `null` deliberately (no named error) to avoid leaking account existence
+- All rate-limited responses include `Retry-After` header
+
+#### Infrastructure
+- `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` added to `.env.example`
+
+---
+
 ### Phase 3, Post-Audit Hardening (April 18, 2026)
 
 #### Security

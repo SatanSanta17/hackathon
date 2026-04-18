@@ -2,7 +2,7 @@
 
 **Document ID:** ARCH-004  
 **Date:** April 18, 2026  
-**Status:** Phase 3 Complete + Post-Audit Hardening  
+**Status:** Phase 3.5 Part 1 Complete (Core Hardening — Rate Limiting)  
 **Update Frequency:** Every development phase
 
 ---
@@ -93,7 +93,8 @@ hackforge/                              # PROJECT ROOT
 │   │   ├── prd.md
 │   │   └── trd.md
 │   └── 009-core-hardening/             # Phase 3.5 PRD + TRD
-│       └── prd.md                      # TRD to be written after PRD approval
+│       ├── prd.md
+│       └── trd.md
 ├── drizzle.config.ts                   # Drizzle Kit configuration
 ├── eslint.config.mjs                   # ESLint 9 flat config
 ├── next.config.ts                      # Next.js 16 configuration
@@ -424,6 +425,7 @@ hackforge/                              # PROJECT ROOT
     │
     └── lib/
         ├── utils.ts                    # cn() + slugify() helpers
+        ├── rate-limit.ts               # Upstash Redis sliding-window limiters (signup, login, forgot-password, resend-verification, reset-password); fail-open on Redis errors
         ├── auth/
         │   ├── auth.ts                 # NextAuth v5 config (Credentials, JWT, callbacks)
         │   ├── constants.ts            # AUTH_CONSTANTS + AUTH_EXPIRY_LABELS
@@ -826,4 +828,4 @@ notification_type: registration, submission, judging, result, announcement
 
 ---
 
-*This document reflects what EXISTS in the codebase as of Phase 3 post-audit hardening (April 18, 2026). It is updated after each development part. Planned tables will be validated against actual implementation during their respective phases.*
+*This document reflects what EXISTS in the codebase as of Phase 3.5 Part 1 (Rate Limiting, April 18, 2026). It is updated after each development part. Planned tables will be validated against actual implementation during their respective phases.*

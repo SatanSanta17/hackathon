@@ -30,10 +30,14 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
         // Rate limit by email — deliberately returns null (not a named error) to
         // avoid leaking whether an email is registered on the platform.
-        const limit = await rateLimit(email.toLowerCase(), loginLimiter);
-        if (!limit.success) {
-          console.log('[auth] Login rate limited:', email);
-          return null;
+        try {
+          const limit = await rateLimit(email.toLowerCase(), loginLimiter);
+          if (!limit.success) {
+            console.log('[auth] Login rate limited:', email);
+            return null;
+          }
+        } catch (rateLimitErr) {
+          console.error('[auth] Rate limit check failed, failing open:', rateLimitErr);
         }
 
         const user = await db.query.users.findFirst({
