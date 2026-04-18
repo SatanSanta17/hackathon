@@ -1,4 +1,5 @@
 import { AUTH_EXPIRY_LABELS } from '@/lib/auth/constants';
+import { ORG_ROLE } from '@/lib/constants/enums';
 
 interface EmailTemplate {
   subject: string;
@@ -91,7 +92,7 @@ export function orgInviteEmail(params: {
   acceptUrl: string;
 }): EmailTemplate {
   const { inviterName, orgName, role, acceptUrl } = params;
-  const roleLabel = role === 'org_admin' ? 'Admin' : 'Member';
+  const roleLabel = role === ORG_ROLE.ADMIN ? 'Admin' : 'Member';
 
   return {
     subject: `You're invited to join ${orgName} on HackForge`,

@@ -2,7 +2,7 @@
 
 **Document ID:** ARCH-004  
 **Date:** April 18, 2026  
-**Status:** Phase 3.5 Parts 1–2 Complete (Core Hardening — Rate Limiting + Banner Fix)  
+**Status:** Phase 3.5 Parts 1–2 Complete + Convention Audit (Core Hardening)  
 **Update Frequency:** Every development phase
 
 ---

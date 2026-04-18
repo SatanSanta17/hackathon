@@ -4,7 +4,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 
 import { Badge } from '@/components/ui/badge';
-import { TEAM_ADMIN_STATUS } from '@/lib/constants/enums';
+import { HACKATHON_STATUS, TEAM_ADMIN_STATUS } from '@/lib/constants/enums';
 import type { UserHackathonSummary } from '@/lib/services/registration-service';
 
 interface MyHackathonCardProps {
@@ -114,7 +114,7 @@ export function MyHackathonCard({ summary, activePhase }: MyHackathonCardProps) 
         )}
 
         {/* Phase countdown */}
-        {hackathon.status === 'completed' ? (
+        {hackathon.status === HACKATHON_STATUS.COMPLETED ? (
           <p className="text-xs text-muted-foreground">Hackathon completed.</p>
         ) : activePhase ? (
           <p className="text-xs text-muted-foreground">

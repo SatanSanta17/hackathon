@@ -1,6 +1,7 @@
 import { notFound, redirect } from 'next/navigation';
 
 import { auth } from '@/lib/auth/auth';
+import { TEAM_MEMBER_ROLE } from '@/lib/constants/enums';
 import { getHackathonBySlug } from '@/lib/services/hackathon-service';
 import { getRegistrationByUserAndHackathon } from '@/lib/services/registration-service';
 import {
@@ -45,7 +46,7 @@ export default async function TeamProfilePage({
 
   const isOnDifferentTeam = !viewerMember && userTeam !== null;
 
-  const joinRequests = viewerRole === 'lead' ? await getJoinRequestsForTeam(teamId) : [];
+  const joinRequests = viewerRole === TEAM_MEMBER_ROLE.LEAD ? await getJoinRequestsForTeam(teamId) : [];
 
   return (
     <TeamProfileClient

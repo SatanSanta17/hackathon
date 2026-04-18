@@ -30,6 +30,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { ORG_ROLE } from '@/lib/constants/enums';
 import { InviteDialog } from './invite-dialog';
 import { RoleSelect } from './role-select';
 
@@ -63,7 +64,7 @@ export function MemberTable({
 }: MemberTableProps) {
   const { data: session } = useSession();
   const [members, setMembers] = useState<MemberData[]>(initialMembers);
-  const isAdmin = currentUserRole === 'org_admin';
+  const isAdmin = currentUserRole === ORG_ROLE.ADMIN;
 
   // Role change dialog state
   const [roleDialogOpen, setRoleDialogOpen] = useState(false);
@@ -76,7 +77,7 @@ export function MemberTable({
   const [removeTarget, setRemoveTarget] = useState<MemberData | null>(null);
   const [isRemoving, setIsRemoving] = useState(false);
 
-  const adminCount = members.filter((m) => m.membership.role === 'org_admin').length;
+  const adminCount = members.filter((m) => m.membership.role === ORG_ROLE.ADMIN).length;
 
   const fetchMembers = useCallback(async () => {
     try {
@@ -172,7 +173,7 @@ export function MemberTable({
   }
 
   function isLastAdmin(member: MemberData) {
-    return member.membership.role === 'org_admin' && adminCount <= 1;
+    return member.membership.role === ORG_ROLE.ADMIN && adminCount <= 1;
   }
 
   function isSelf(member: MemberData) {
@@ -224,8 +225,8 @@ export function MemberTable({
                   {member.user.email}
                 </TableCell>
                 <TableCell>
-                  <Badge variant={member.membership.role === 'org_admin' ? 'default' : 'secondary'}>
-                    {member.membership.role === 'org_admin' ? 'Admin' : 'Member'}
+                  <Badge variant={member.membership.role === ORG_ROLE.ADMIN ? 'default' : 'secondary'}>
+                    {member.membership.role === ORG_ROLE.ADMIN ? 'Admin' : 'Member'}
                   </Badge>
                 </TableCell>
                 <TableCell className="text-muted-foreground">

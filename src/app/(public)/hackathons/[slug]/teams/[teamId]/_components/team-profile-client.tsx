@@ -9,7 +9,7 @@ import { toast } from 'sonner';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { TEAM_ADMIN_STATUS, JOIN_ENTRY_POINT } from '@/lib/constants/enums';
+import { TEAM_ADMIN_STATUS, JOIN_ENTRY_POINT, JOIN_REQUEST_STATUS, TEAM_MEMBER_ROLE } from '@/lib/constants/enums';
 import type { JoinRequestForTeam, TeamMemberDetail, TeamProfileData } from '@/lib/services/team-service';
 import { JoinRequestDialog } from '../../_components/join-request-dialog';
 import { EditTeamDialog } from './edit-team-dialog';
@@ -124,10 +124,10 @@ export function TeamProfileClient({
       return;
     }
     setJoinRequests((prev) => prev.filter((r) => r.id !== requestId));
-    if (status === 'accepted') {
+    if (status === JOIN_REQUEST_STATUS.ACCEPTED) {
       router.refresh();
     }
-    toast.success(status === 'accepted' ? 'Member added.' : 'Request rejected.');
+    toast.success(status === JOIN_REQUEST_STATUS.ACCEPTED ? 'Member added.' : 'Request rejected.');
   }
 
   async function handleTeamUpRespond(requestId: string, status: 'accepted' | 'rejected') {
@@ -144,7 +144,7 @@ export function TeamProfileClient({
       toast.error(data.message ?? 'Failed to respond.');
       return;
     }
-    if (status === 'accepted' && data.teamId) {
+    if (status === JOIN_REQUEST_STATUS.ACCEPTED && data.teamId) {
       router.push(`/hackathons/${hackathon.slug}/teams/${data.teamId}`);
     } else {
       setTeamUpRequests((prev) => prev.filter((r) => r.id !== requestId));
@@ -235,7 +235,7 @@ export function TeamProfileClient({
 
       {/* Actions bar */}
       <div className="flex flex-wrap gap-2">
-        {viewerRole === 'lead' && (
+        {viewerRole === TEAM_MEMBER_ROLE.LEAD && (
           <>
             <Button variant="outline" size="sm" onClick={() => setEditDialogOpen(true)}>
               Edit Team
@@ -250,7 +250,7 @@ export function TeamProfileClient({
             </Button>
           </>
         )}
-        {viewerRole === 'member' && (
+        {viewerRole === TEAM_MEMBER_ROLE.MEMBER && (
           <Button variant="destructive" size="sm" onClick={handleLeave} disabled={leaveLoading}>
             {leaveLoading ? 'Leaving…' : 'Leave Team'}
           </Button>
@@ -300,10 +300,10 @@ export function TeamProfileClient({
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <Badge variant={m.role === 'lead' ? 'default' : 'secondary'} className="text-xs">
-                  {m.role === 'lead' ? 'Lead' : 'Member'}
+                <Badge variant={m.role === TEAM_MEMBER_ROLE.LEAD ? 'default' : 'secondary'} className="text-xs">
+                  {m.role === TEAM_MEMBER_ROLE.LEAD ? 'Lead' : 'Member'}
                 </Badge>
-                {viewerRole === 'lead' && m.role !== 'lead' && (
+                {viewerRole === TEAM_MEMBER_ROLE.LEAD && m.role !== TEAM_MEMBER_ROLE.LEAD && (
                   <Button
                     variant="ghost"
                     size="sm"
@@ -338,7 +338,7 @@ export function TeamProfileClient({
       )}
 
       {/* Join Requests (lead only) */}
-      {viewerRole === 'lead' && joinRequests.length > 0 && (
+      {viewerRole === TEAM_MEMBER_ROLE.LEAD && joinRequests.length > 0 && (
         <div className="rounded-lg border">
           <div className="border-b px-4 py-3">
             <h2 className="font-semibold">Join Requests ({joinRequests.length})</h2>

@@ -2,7 +2,7 @@ import { notFound } from 'next/navigation';
 import type { Metadata } from 'next';
 
 import { auth } from '@/lib/auth/auth';
-import { HACKATHON_STATUS, TEAM_ADMIN_STATUS } from '@/lib/constants/enums';
+import { HACKATHON_STATUS, PHASE_TYPE, TEAM_ADMIN_STATUS } from '@/lib/constants/enums';
 import { getHackathonBySlug } from '@/lib/services/hackathon-service';
 import { getRegistrationByUserAndHackathon, getRegistrationFields } from '@/lib/services/registration-service';
 import { getUserTeamForHackathon } from '@/lib/services/team-service';
@@ -150,7 +150,7 @@ export default async function HackathonLandingPage({ params }: PageProps) {
 
   // Find registration phase dates for the hero
   const sortedPhases = [...phases].sort((a, b) => a.order - b.order);
-  const registrationPhase = sortedPhases.find((p) => p.type === 'registration');
+  const registrationPhase = sortedPhases.find((p) => p.type === PHASE_TYPE.REGISTRATION);
 
   // Build page URL for social sharing
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://hackforge.com';
@@ -162,7 +162,7 @@ export default async function HackathonLandingPage({ params }: PageProps) {
 
   function isRegOpen(): boolean {
     if (hackathon.status === HACKATHON_STATUS.COMPLETED || hackathon.status === HACKATHON_STATUS.ARCHIVED) return false;
-    const reg = sortedPhases.find((p) => p.type === 'registration');
+    const reg = sortedPhases.find((p) => p.type === PHASE_TYPE.REGISTRATION);
     if (!reg?.startDate || !reg?.endDate) return hackathon.status === HACKATHON_STATUS.PUBLISHED;
     const now = new Date();
     return now >= new Date(reg.startDate) && now <= new Date(reg.endDate);

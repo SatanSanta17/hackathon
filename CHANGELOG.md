@@ -6,6 +6,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Convention Audit & Cleanup (April 18, 2026)
+
+#### Code Quality
+- Replaced all raw DB enum string literals with typed constants across the codebase — `HACKATHON_STATUS`, `PHASE_STATUS`, `PHASE_TYPE`, `TEAM_ADMIN_STATUS`, `TEAM_MEMBER_ROLE`, `JOIN_REQUEST_STATUS`, `ORG_ROLE` constants now used in every comparison (22 files updated)
+- Fixed `window.location.href` in `participants-browse-client.tsx` — team-up accept redirect now uses `router.push()` per Next.js convention
+- Fixed service file import order in `auth-service.ts`, `team-up-service.ts`, `hackathon-service.ts` — sibling services now grouped after `@/lib/*` utilities with proper blank-line separation; `import type` moved to end
+
+---
+
 ### Phase 3.5 — Core Hardening, Part 2: Email Verification Banner Fix (April 18, 2026)
 
 #### Correctness

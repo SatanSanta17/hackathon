@@ -5,6 +5,7 @@ import { Building2, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { auth } from '@/lib/auth/auth';
+import { ORG_ROLE } from '@/lib/constants/enums';
 import { getUserOrgs } from '@/lib/services/org-service';
 
 export const metadata = {
@@ -55,7 +56,7 @@ export default async function DashboardPage() {
                         {item.org.name}
                       </CardTitle>
                       <CardDescription className="text-xs">
-                        {item.role === 'org_admin' ? 'Admin' : 'Member'}
+                        {item.role === ORG_ROLE.ADMIN ? 'Admin' : 'Member'}
                       </CardDescription>
                     </div>
                   </CardHeader>

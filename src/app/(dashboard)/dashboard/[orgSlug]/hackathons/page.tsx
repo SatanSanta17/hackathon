@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { ChevronLeft } from 'lucide-react';
 
 import { auth } from '@/lib/auth/auth';
+import { ORG_ROLE } from '@/lib/constants/enums';
 import { getOrgBySlug, checkUserOrgRole } from '@/lib/services/org-service';
 import { getHackathonsByOrgId } from '@/lib/services/hackathon-service';
 import { HackathonList } from './_components/hackathon-list';
@@ -45,7 +46,7 @@ export default async function HackathonsPage({
     orgId: org.id,
   });
 
-  const isAdmin = orgRole?.role === 'org_admin';
+  const isAdmin = orgRole?.role === ORG_ROLE.ADMIN;
 
   return (
     <div className="space-y-6">

@@ -10,6 +10,7 @@ import { ChevronLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
+import { JOIN_REQUEST_STATUS, TEAM_MEMBER_ROLE } from '@/lib/constants/enums';
 import type { DiscoverableParticipant } from '@/lib/services/registration-service';
 import type { TeamUpRequestWithUser } from '@/lib/services/team-up-service';
 import { ParticipantCard } from './participant-card';
@@ -64,7 +65,7 @@ export function ParticipantsBrowseClient({
   }, [participants, search, viewerUserId]);
 
   const viewerIsRegisteredUnteamed = isRegistered && !hasTeam;
-  const viewerIsLead = viewerRole === 'lead';
+  const viewerIsLead = viewerRole === TEAM_MEMBER_ROLE.LEAD;
 
   async function handleRespond(requestId: string, status: 'accepted' | 'rejected') {
     startTransition(async () => {
@@ -83,7 +84,7 @@ export function ParticipantsBrowseClient({
           return;
         }
         setPendingRequests((prev) => prev.filter((r) => r.id !== requestId));
-        if (status === 'accepted') {
+        if (status === JOIN_REQUEST_STATUS.ACCEPTED) {
           toast.success('Team created! Redirecting…');
           router.push(`/hackathons/${hackathonSlug}/teams/${body.teamId}`);
         } else {

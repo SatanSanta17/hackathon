@@ -130,7 +130,7 @@ export async function respondToTeamUpRequest(
   if (!request) throw new Error(ERR.REQUEST_NOT_FOUND);
   if (request.status !== JOIN_REQUEST_STATUS.PENDING) throw new Error(ERR.REQUEST_ALREADY_RESOLVED);
 
-  if (status === 'accepted') {
+  if (status === JOIN_REQUEST_STATUS.ACCEPTED) {
     // Re-validate at acceptance time — either user may have joined a team since the request
     const fromTeam = await getUserTeamForHackathon(request.fromUserId, request.hackathonId);
     if (fromTeam) throw new Error(ERR.FROM_USER_ALREADY_IN_TEAM);

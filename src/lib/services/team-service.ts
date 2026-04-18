@@ -680,7 +680,7 @@ export async function respondToJoinRequest(
   if (!request) throw new Error(ERR.REQUEST_NOT_FOUND);
   if (request.status !== JOIN_REQUEST_STATUS.PENDING) throw new Error(ERR.REQUEST_ALREADY_RESOLVED);
 
-  if (status === 'accepted') {
+  if (status === JOIN_REQUEST_STATUS.ACCEPTED) {
     const [sizeResult] = await db
       .select({ memberCount: count() })
       .from(teamMembers)

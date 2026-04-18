@@ -8,6 +8,7 @@ import { getEmailService } from '@/lib/email';
 import { registrationConfirmedEmail } from '@/lib/email/templates';
 import { requireVerifiedUser } from '@/lib/auth/require-verified';
 import { ERR } from '@/lib/constants/error-codes';
+import { HACKATHON_STATUS, PHASE_STATUS, PHASE_TYPE } from '@/lib/constants/enums';
 import { createRegistration } from '@/lib/services/registration-service';
 import { createRegistrationSchema } from '@/lib/validations/registration';
 
@@ -41,7 +42,7 @@ export async function POST(
     return NextResponse.json({ message: 'Hackathon not found.' }, { status: 404 });
   }
 
-  if (hackathon.status !== 'published' && hackathon.status !== 'active') {
+  if (hackathon.status !== HACKATHON_STATUS.PUBLISHED && hackathon.status !== HACKATHON_STATUS.ACTIVE) {
     return NextResponse.json({ message: 'Registration is not open.' }, { status: 403 });
   }
 
@@ -49,10 +50,10 @@ export async function POST(
   const [regPhase] = await db
     .select({ status: phases.status })
     .from(phases)
-    .where(and(eq(phases.hackathonId, hackathonId), eq(phases.type, 'registration')))
+    .where(and(eq(phases.hackathonId, hackathonId), eq(phases.type, PHASE_TYPE.REGISTRATION)))
     .limit(1);
 
-  if (regPhase?.status === 'completed') {
+  if (regPhase?.status === PHASE_STATUS.COMPLETED) {
     return NextResponse.json({ message: 'Registration has closed.' }, { status: 403 });
   }
 

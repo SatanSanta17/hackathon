@@ -7,6 +7,7 @@ import { getEmailService } from '@/lib/email';
 import { orgInviteEmail } from '@/lib/email/templates';
 import { AUTH_CONSTANTS } from '@/lib/auth/constants';
 import { ERR } from '@/lib/constants/error-codes';
+import { ORG_ROLE } from '@/lib/constants/enums';
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL!;
 
@@ -380,7 +381,7 @@ export async function changeMemberRole(params: {
     }
 
     // If demoting from org_admin, check this isn't the last one
-    if (membership.role === 'org_admin' && params.newRole === 'member') {
+    if (membership.role === ORG_ROLE.ADMIN && params.newRole === ORG_ROLE.MEMBER) {
       const [adminCount] = await db
         .select({ value: count() })
         .from(orgMemberships)
@@ -447,7 +448,7 @@ export async function removeMember(params: {
     }
 
     // If removing an org_admin, check this isn't the last one
-    if (membership.role === 'org_admin') {
+    if (membership.role === ORG_ROLE.ADMIN) {
       const [adminCount] = await db
         .select({ value: count() })
         .from(orgMemberships)
