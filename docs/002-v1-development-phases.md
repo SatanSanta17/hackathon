@@ -168,11 +168,87 @@ Full rationale: see [TDR-001: Technical Decisions](./001-technical-decisions.md)
 
 ---
 
-## Phase 4: Submissions + File Uploads (Days 11-14)
+## Phase 3.5: Core Hardening (Days 11-18, ~7.5 days)
+
+**Goal:** Make the existing three flows production-worthy for any organization worldwide. Close security, correctness, and UX gaps before building Phase 4 on top of them.
+
+**PRD:** `docs/009-core-hardening/prd.md` (PRD-009, Approved)
+
+### Part 1: Security — Rate Limiting (~1 day)
+- [ ] Install `@upstash/ratelimit` + `@upstash/redis`
+- [ ] Create `src/lib/rate-limit.ts` with 5 sliding-window limiters
+- [ ] Apply rate limiting to `POST /api/auth/signup` (5 req / IP / 15 min)
+- [ ] Apply rate limiting to `POST /api/auth/forgot-password` (3 req / IP / 15 min)
+- [ ] Apply rate limiting to `POST /api/auth/resend-verification` (3 req / IP / 15 min)
+- [ ] Apply rate limiting to `POST /api/auth/reset-password` (5 req / email / 15 min)
+- [ ] Apply rate limiting to NextAuth credentials login (10 req / email / 15 min)
+- [ ] All rate-limited routes return `429` with `Retry-After` header
+
+### Part 2: Session Architecture — JWT Cleanup + Email Verified Fix (~1 day)
+- [ ] Strip `orgId`, `orgRole` from JWT token and session type
+- [ ] `requireOrgRole()` becomes a live DB lookup on `org_memberships`
+- [ ] All API routes pass `orgId` from URL param, not from session
+- [ ] Audit and update all client components reading `session.user.orgId` or `session.user.role`
+- [ ] Fix email verification banner: call NextAuth `update({ emailVerified: true })` after verification — banner clears without re-login
+- [ ] `jwt` callback handles `trigger === 'update'` to refresh `emailVerified`
+- [ ] `requireSuperAdmin()` verified still working after token shape change
+
+### Part 3: Platform Landing Page + Org-less Flow (~1.5 days)
+- [ ] Replace temporary `src/app/page.tsx` with real platform homepage
+- [ ] Create `src/components/platform-nav.tsx` (logged-out: Sign In + Get Started; logged-in: avatar dropdown)
+- [ ] Hero section + hackathon discovery grid (all public hackathons across all orgs)
+- [ ] Status filter pills: All, Open for Registration, Active, Upcoming
+- [ ] Add `getPublicHackathons(filter?)` to `hackathon-service.ts`
+- [ ] Fix org-less post-login: `/dashboard` shows "Your Hackathons" + org creation prompt — no forced redirect
+- [ ] Org-less sidebar: show only "My Hackathons" and "Account Settings"
+- [ ] `generateMetadata` for root page SEO
+
+### Part 4: User Profile + Account Settings (~1 day)
+- [ ] Implement `src/app/(dashboard)/dashboard/account/` page
+- [ ] Add "Account Settings" link to top bar user dropdown
+- [ ] Personal Info section: edit display name, save via `PATCH /api/user/profile`, refresh session token
+- [ ] Avatar upload + removal (StorageProvider, `avatars/[userId]/`)
+- [ ] Security section: change password (`POST /api/user/change-password`, bcrypt verify + hash)
+- [ ] Your Organizations section: read-only list of orgs with role and dashboard link
+
+### Part 5: Pagination Architecture (~1.5 days)
+- [ ] Create `src/components/pagination-controls.tsx` shared component
+- [ ] Add `paginate<T>()` DB helper in `src/lib/db-utils.ts`
+- [ ] Establish URL search params pattern (page, q, filters in URL)
+- [ ] Paginate: participant browse (pageSize 24, server-side name search)
+- [ ] Paginate: team browse (pageSize 20, server-side name + track filter)
+- [ ] Paginate: admin participant roster (pageSize 25, server-side search + filters)
+- [ ] Paginate: admin team list (pageSize 25, server-side filters; Pending Review section unpaginated)
+- [ ] Paginate: org member list (pageSize 25)
+- [ ] Paginate: hackathon list (pageSize 12)
+- [ ] Remove all `useMemo`-based client-side search from refactored components
+
+### Part 6: Design Token System (~1 day)
+- [ ] Define admin theme color tokens in `globals.css` (brand, neutral, semantic, surface, text aliases)
+- [ ] Define competitive theme color tokens overrides under `.theme-competitive`
+- [ ] Define typography scale (8 font sizes, 4 line heights, 4 font weights) as CSS custom properties
+- [ ] Define radius + shadow tokens
+- [ ] Extend `tailwind.config.ts` to reference token values
+- [ ] Audit all components: replace hardcoded hex values and arbitrary sizes with tokens
+- [ ] Document token system in `docs/003-coding-conventions.md`
+
+### Part 7: Org Settings CRUD (~0.5 days)
+- [ ] Implement `src/app/(dashboard)/dashboard/[orgSlug]/settings/page.tsx` (replace placeholder)
+- [ ] Org name edit + logo upload/removal (gated to `org_admin`)
+- [ ] Slug shown as read-only with explanatory tooltip
+- [ ] Danger Zone section: delete button disabled with tooltip in V1
+- [ ] `PATCH /api/orgs/[orgId]` route + `updateOrg()` service function
+
+### Phase 3.5 Deliverable
+> **Demo:** A visitor lands on hackforge.io and sees a real platform homepage with live hackathons. They sign up — repeated failed logins are rate-limited. After verifying their email, the banner clears immediately. An org admin promotes a member; the member's elevated permissions apply on their next action. A user corrects a name typo from Account Settings. An admin browsing a 1,000-person roster sees 25 results per page with server-side search.
+
+---
+
+## Phase 4: Submissions + File Uploads (Days 19-22)
 
 **Goal:** Teams submit their work (ideas, prototypes, demos) through structured forms.
 
-### Day 11: Storage Provider Interface + Upload System
+### Day 19: Storage Provider Interface + Upload System
 - [ ] Define the `StorageProvider` interface:
   ```typescript
   interface StorageProvider {
@@ -187,7 +263,7 @@ Full rationale: see [TDR-001: Technical Decisions](./001-technical-decisions.md)
 - [ ] File type restrictions: PDF, PPTX, ZIP, PNG, JPG, MP4 (configurable per hackathon)
 - [ ] Max file size: 50MB per file (configurable)
 
-### Day 12: Submission Schema + Form
+### Day 20: Submission Schema + Form
 - [ ] Define database schema:
   - `submissions` — id, team_id, phase_id, hackathon_id, status (draft | submitted | late | withdrawn), submitted_at, updated_at
   - `submission_fields` — id, submission_id, field_name, field_type, value (text), file_url, file_key
@@ -197,14 +273,14 @@ Full rationale: see [TDR-001: Technical Decisions](./001-technical-decisions.md)
 - [ ] Draft save functionality (auto-save every 30 seconds)
 - [ ] Final submit with confirmation dialog
 
-### Day 13: Submission Lifecycle
+### Day 21: Submission Lifecycle
 - [ ] Deadline enforcement: submissions locked after phase end_date
 - [ ] Late submission handling (configurable: reject | flag | accept)
 - [ ] Submission edit: allowed until deadline (track edit history with timestamps)
 - [ ] Submission preview: read-only view of what judges will see
 - [ ] Withdrawal option: team can withdraw submission before deadline
 
-### Day 14: Admin Submission Management
+### Day 22: Admin Submission Management
 - [ ] Admin submission overview: all submissions, filter by track/team/status
 - [ ] Submission detail view for admin: full content + metadata
 - [ ] Bulk export: submissions list as CSV
@@ -216,11 +292,11 @@ Full rationale: see [TDR-001: Technical Decisions](./001-technical-decisions.md)
 
 ---
 
-## Phase 5: Judging + Scoring + Leaderboard (Days 15-17)
+## Phase 5: Judging + Scoring + Leaderboard (Days 23-25)
 
 **Goal:** Judges evaluate submissions, scores are aggregated, winners are declared.
 
-### Day 15: Judging Configuration + Assignment
+### Day 23: Judging Configuration + Assignment
 - [ ] Define database schema:
   - `evaluation_criteria` — id, hackathon_id, phase_id, name, description, weight (percentage), max_score, order
   - `judge_assignments` — id, hackathon_id, judge_user_id, track_id (nullable — null means all tracks), assigned_by, assigned_at
@@ -229,7 +305,7 @@ Full rationale: see [TDR-001: Technical Decisions](./001-technical-decisions.md)
 - [ ] Build judge assignment UI: select users → assign to tracks or specific submissions
 - [ ] Send judging assignment notification emails
 
-### Day 16: Judge Dashboard + Scoring Interface
+### Day 24: Judge Dashboard + Scoring Interface
 - [ ] Build judge dashboard: queue of assigned submissions (pending, in-progress, completed)
 - [ ] Submission review view for judges:
   - Team info (hidden if blind judging enabled)
@@ -242,7 +318,7 @@ Full rationale: see [TDR-001: Technical Decisions](./001-technical-decisions.md)
 - [ ] Auto-save judge scores as they fill in (prevent lost work)
 - [ ] Progress indicator: "You've evaluated 4 of 12 submissions"
 
-### Day 17: Score Aggregation + Leaderboard + Winners
+### Day 25: Score Aggregation + Leaderboard + Winners
 - [ ] Score aggregation engine:
   - Per submission: weighted average across all judge scores per criterion
   - Flag submissions with high standard deviation across judges (indicates inconsistency)
@@ -263,11 +339,11 @@ Full rationale: see [TDR-001: Technical Decisions](./001-technical-decisions.md)
 
 ---
 
-## Phase 6: Notifications + Polish + Testing (Days 18-20)
+## Phase 6: Notifications + Polish + Testing (Days 26-28)
 
 **Goal:** Production-ready platform with email notifications, data exports, and polished UX.
 
-### Day 18: Email System + Notifications
+### Day 26: Email System + Notifications
 - [ ] Build React Email templates:
   - Welcome / Email verification
   - Organization invite
@@ -283,7 +359,7 @@ Full rationale: see [TDR-001: Technical Decisions](./001-technical-decisions.md)
 - [ ] Admin broadcast: send announcement to all hackathon participants
 - [ ] Deadline reminder system: automated email 24h before each phase deadline (Vercel Cron)
 
-### Day 19: Data Export + Admin Polish
+### Day 27: Data Export + Admin Polish
 - [ ] CSV export functions:
   - Participant list (name, email, team, track, registration date)
   - Team list (name, members, track, submission status)
@@ -297,7 +373,7 @@ Full rationale: see [TDR-001: Technical Decisions](./001-technical-decisions.md)
 - [ ] Error states and empty states for all views
 - [ ] Loading skeletons for data-fetching pages
 
-### Day 20: Testing + Bug Fixes + Deployment
+### Day 28: Testing + Bug Fixes + Deployment
 - [ ] End-to-end manual testing of complete hackathon lifecycle:
   1. Create org → invite members
   2. Create hackathon (Innovation Pipeline template)
@@ -332,11 +408,12 @@ Full rationale: see [TDR-001: Technical Decisions](./001-technical-decisions.md)
 |-------|------|----------|-------------|
 | Phase 1: Foundation + Auth | 3 | Auth, org management, RBAC, app shell | Users sign up and see org dashboard |
 | Phase 2: Hackathon Creation | 4 | Templates, creation wizard, landing page | Admin creates hackathon, public page is live |
-| Phase 3: Registration + Teams | 3 | Registration, team formation, discovery | Participants register and form teams |
+| Phase 3: Registration + Teams | ~4 | Registration, team formation, discovery | Participants register and form teams |
+| **Phase 3.5: Core Hardening** | **~7.5** | **Security, session fix, platform landing, account settings, pagination, design tokens, org settings** | **Production-worthy base for worldwide SaaS** |
 | Phase 4: Submissions | 4 | File uploads, submission forms, drafts | Teams submit work with files |
 | Phase 5: Judging | 3 | Scoring, leaderboard, winner declaration | Judges score, winners declared |
 | Phase 6: Polish + Ship | 3 | Emails, exports, testing, deployment | Production-ready platform |
-| **Total** | **20** | **Complete hackathon lifecycle** | **Ready for InMobi** |
+| **Total** | **~28.5** | **Complete hackathon lifecycle + hardened base** | **Ready for worldwide launch** |
 
 ---
 
@@ -361,59 +438,39 @@ These features are intentionally deferred to keep V1 shippable in 3 weeks:
 
 ## Identified Gaps & Design Debt
 
-*Captured 2026-04-17. These are open questions and missing features discovered during V1 build. Each needs a PRD/TRD before implementation.*
+*Captured 2026-04-17. Updated 2026-04-18 — gaps resolved in Phase 3.5 are marked.*
 
 ---
 
-### G1 — User Flow: No Org Required
+### G1 — User Flow: No Org Required ✅ Resolved in Phase 3.5 (Part 3)
 
 **Problem:** Currently every authenticated user must create an org to do anything useful. There is no general user experience for someone who is just a hackathon participant (no admin role, no org they own).
 
-**What's needed:**
-- Post-login landing for users with no org membership: show "My Hackathons" (registrations) + option to create or join an org — not a forced org-creation wall
-- Sidebar design that works for both org-member users (full nav) and org-less participants (just My Hackathons + account settings)
-- "My Orgs" switcher if a user belongs to multiple orgs
-
-**Impact:** Medium — affects every participant-only user. For InMobi V1 all users will be in the same org, so not blocking, but must fix before any external use.
+**Resolution:** Phase 3.5 Part 3 removes the forced org-creation redirect. Org-less users land on a useful `/dashboard` showing their registered hackathons. The sidebar for org-less users shows My Hackathons + Account Settings only.
 
 ---
 
-### G2 — Public Platform Landing Page
+### G2 — Public Platform Landing Page ✅ Resolved in Phase 3.5 (Part 3)
 
 **Problem:** There is no root `/` experience for HackForge as a platform. Opening the site as a logged-out user shows nothing useful.
 
-**What's needed:**
-- Root `/` page: hero + list of all public hackathons across all orgs
-- Top nav with "Sign In" CTA for logged-out users; user avatar + org switcher for logged-in users
-- Search/filter by status (open, upcoming, active)
-
-**Impact:** Low for InMobi V1 (internal, users land via direct link), but required before any external customer or public-facing use.
+**Resolution:** Phase 3.5 Part 3 replaces the temporary root page with a real platform homepage — hero, hackathon discovery grid, status filters, platform nav.
 
 ---
 
-### G3 — User Profile / Account Settings
+### G3 — User Profile / Account Settings ✅ Resolved in Phase 3.5 (Part 4)
 
 **Problem:** Once signed up, a user cannot edit their own name, email, password, or avatar. The forgot-password flow covers credential recovery but there is no self-service account page.
 
-**What's needed:**
-- `/account` (or `/settings`) page accessible from the user avatar menu in the top nav
-- Edit name, email (with re-verification), change password, upload avatar
-- Accessible regardless of org membership
-
-**Impact:** Medium — typos in name at signup have no fix. Acceptable for InMobi V1 (names are provisioned), but must exist before self-serve SaaS.
+**Resolution:** Phase 3.5 Part 4 delivers `/dashboard/account` — name edit, password change, avatar upload. Email change deferred (requires re-verification loop).
 
 ---
 
-### G4 — Org Settings CRUD
+### G4 — Org Settings CRUD ✅ Resolved in Phase 3.5 (Part 7)
 
 **Problem:** The `/dashboard/[orgSlug]/settings` page is a placeholder. Org admins cannot edit org name, slug, or logo after creation.
 
-**What's needed:**
-- Edit org name and logo (slug change should be discouraged or locked after first use to avoid broken links)
-- Danger zone: delete org (with confirmation + cascade check)
-- This is already in the sidebar — just needs implementation
-
-**Impact:** Low for V1 (org is set up once), but needed for any org that makes a typo or rebrands.
+**Resolution:** Phase 3.5 Part 7 implements org name and logo editing. Slug is read-only. Org deletion deferred to V1.5 (requires cascade audit).
 
 ---
 

@@ -89,9 +89,11 @@ hackforge/                              # PROJECT ROOT
 │   ├── 007-hackathon-creation/         # Phase 2 PRD + TRD
 │   │   ├── prd.md
 │   │   └── trd.md
-│   └── 008-registration-teams/         # Phase 3 PRD + TRD
-│       ├── prd.md
-│       └── trd.md
+│   ├── 008-registration-teams/         # Phase 3 PRD + TRD
+│   │   ├── prd.md
+│   │   └── trd.md
+│   └── 009-core-hardening/             # Phase 3.5 PRD + TRD
+│       └── prd.md                      # TRD to be written after PRD approval
 ├── drizzle.config.ts                   # Drizzle Kit configuration
 ├── eslint.config.mjs                   # ESLint 9 flat config
 ├── next.config.ts                      # Next.js 16 configuration
@@ -819,6 +821,8 @@ notification_type: registration, submission, judging, result, announcement
 | `SUPABASE_SERVICE_ROLE_KEY` | Server | For storage operations |
 | `RESEND_API_KEY` | Server | Resend email service API key |
 | `FROM_EMAIL` | Server | Sender email address |
+| `UPSTASH_REDIS_REST_URL` | Server | Upstash Redis REST endpoint (rate limiting) |
+| `UPSTASH_REDIS_REST_TOKEN` | Server | Upstash Redis REST token (rate limiting) |
 
 ---
 
