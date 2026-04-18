@@ -73,12 +73,12 @@ function VerifyEmailContent() {
                 Your email has been verified successfully.
               </p>
             </div>
-            <Link
-              href="/dashboard"
-              className="inline-block text-sm text-primary underline-offset-4 hover:underline"
+            <button
+              onClick={() => { window.location.href = '/dashboard'; }}
+              className="text-sm text-primary underline-offset-4 hover:underline"
             >
               Go to dashboard
-            </Link>
+            </button>
           </>
         )}
 

@@ -6,6 +6,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Phase 3.5 — Core Hardening, Part 2: Email Verification Banner Fix (April 18, 2026)
+
+#### Correctness
+- `SessionProvider` now passes `refetchOnWindowFocus` to `NextAuthSessionProvider` — when a user verifies their email in a second tab and returns to the dashboard, the next window focus triggers a session refetch; the JWT callback's DB check returns `isEmailVerified: true` and the banner disappears automatically
+- `verify-email` success state now uses `window.location.href = '/dashboard'` (full browser navigation) instead of Next.js `<Link>` — guarantees middleware runs on redirect, JWT callback fires, and the updated session cookie is written before the dashboard loads
+- Removed unused `next/link` import from `verify-email/page.tsx`
+
+---
+
 ### Phase 3.5 — Core Hardening, Part 1: Rate Limiting (April 18, 2026)
 
 #### Security
