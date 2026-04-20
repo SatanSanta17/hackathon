@@ -3,7 +3,7 @@
 **Document ID:** TRD-009  
 **Date:** April 18, 2026  
 **Author:** Burhanuddin C.  
-**Status:** Parts 1–7 Written — Parts 1–2 + 6 Audited & Complete + Convention Audit Complete  
+**Status:** Parts 1–7 Written — Parts 1–2 + 6 Audited & Complete + Convention Audit Complete + Part 3 Revised  
 **PRD Reference:** `docs/009-core-hardening/prd.md`  
 **Architecture Reference:** `docs/004-architecture.md`  
 **Conventions Reference:** `docs/003-coding-conventions.md`
@@ -641,45 +641,20 @@ No new packages. Uses existing: `next/image`, Drizzle, StorageProvider, `src/lib
 
 ### 3.2 New Component: `src/components/platform-nav.tsx`
 
-Top nav for the platform-level pages (root `/` only). Uses `auth()` server-side to detect login state. Separate from the dashboard's `top-bar.tsx` — different context and different visual language.
+Top nav for the platform-level pages (root `/` only). Separate from the dashboard's `top-bar.tsx`.
 
-```typescript
-// Server Component
-import Link from 'next/link';
-import { auth } from '@/lib/auth/auth';
-import { Button } from '@/components/ui/button';
+**Architecture:** `PlatformNav` is a Server Component — it calls `auth()` and passes user data to a co-located `PlatformUserMenu` Client Component that owns the dropdown interaction. The client boundary is pushed as deep as possible.
 
-export async function PlatformNav() {
-  const session = await auth();
-  const isLoggedIn = !!session?.user;
+**`src/components/platform-nav.tsx`** (Server Component):
+- Logged-out: HackForge wordmark (left) + "Sign In" ghost button + "Get Started" primary button (right)
+- Logged-in: wordmark (left) + `<PlatformUserMenu>` (right) — receives `name` and `email` from session
 
-  return (
-    <nav className="sticky top-0 z-50 border-b border-border bg-background/95 backdrop-blur">
-      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
-        <Link href="/" className="font-heading text-xl font-bold text-foreground">
-          HackForge
-        </Link>
-        <div className="flex items-center gap-3">
-          {isLoggedIn ? (
-            <Button asChild variant="outline" size="sm">
-              <Link href="/dashboard">Dashboard</Link>
-            </Button>
-          ) : (
-            <>
-              <Button asChild variant="ghost" size="sm">
-                <Link href="/login">Sign In</Link>
-              </Button>
-              <Button asChild size="sm">
-                <Link href="/signup">Get Started</Link>
-              </Button>
-            </>
-          )}
-        </div>
-      </div>
-    </nav>
-  );
-}
-```
+**`src/components/platform-user-menu.tsx`** (Client Component):
+- Avatar with initials fallback
+- Dropdown items: "My Hackathons" → `/dashboard`, "Account Settings" → `/dashboard/account`, separator, "Sign Out"
+- Uses `signOut` from `next-auth/react`
+
+**Design decision:** "My Hackathons" links to `/dashboard`. Users with org memberships are auto-redirected to their org dashboard where the My Hackathons page lives. Org-less users are redirected to `/` (see 3.5) where their registered hackathons appear in the "Your Hackathons" section of the platform page itself.
 
 ---
 
@@ -760,32 +735,38 @@ export async function getPublicHackathons(
 Replace the temporary page entirely. Server Component — fetches data server-side.
 
 Structure:
-- `<PlatformNav />` (server component)
-- Hero section: tagline + two CTAs
-- Filter bar + hackathon grid (client component for filter state, server-fetched data passed as prop)
-- Footer
+- `<PlatformNav />` (server component — passes session user to `PlatformUserMenu`)
+- **"Your Hackathons" section** — rendered only when a session exists. Calls `getRegistrationsByUser(userId)` server-side (same service as the My Hackathons page). Shows registered hackathon cards in a horizontal scroll or small grid. If empty: "You haven't registered for any hackathons yet. Browse below." This section gives org-less authenticated users visibility into their participation without needing an org context.
+- Hero section: tagline + "Browse Hackathons" anchor CTA + "Get Started" CTA (hidden when logged in)
+- Filter bar + hackathon discovery grid (client component for filter state, server-fetched data passed as prop)
+- Footer: "Built with HackForge" + Sign In / Get Started links (hidden when logged in)
 
-A co-located `_components/hackathon-grid.tsx` client component owns the filter state and renders cards from the server-fetched list.
+A co-located `src/app/_components/hackathon-grid.tsx` client component owns the filter state and renders cards from the server-fetched list. Cards show hackathon title, org name, status badge, and cover image (gradient fallback when none).
+
+**Note on save/star:** The save/star feature is explicitly out of scope for V1. Hackathon cards on the platform page do not include a save toggle.
 
 ---
 
-### 3.5 Org-less Dashboard Fix: `src/app/(dashboard)/dashboard/page.tsx`
+### 3.5 Org-less Dashboard: `src/app/(dashboard)/dashboard/page.tsx`
 
-Read the current page, then update the branch that handles "no org memberships" to show a useful state instead of forcing org creation.
+The zero-org branch currently shows a "Create Organization" wall. Replace with a redirect to `/`.
 
-The updated no-membership branch renders:
-- "Your Hackathons" section (their registrations, same data as My Hackathons)
-- "Get Started" card: "Create an Organization" link + "You can also join via an invite link from an org admin."
+Rationale: the platform landing page (`/`) is the correct front door for org-less users. It shows all public hackathons, their registered hackathons (when logged in), and links to Account Settings via the platform nav. There is no content the org-less `/dashboard` page adds beyond what `/` already provides.
 
-No redirect. No wall.
+```typescript
+// Zero orgs → redirect to platform page
+if (userOrgs.length === 0) {
+  redirect('/');
+}
+```
+
+**Design decision:** This is a clean break from the original "org creation wall" approach. Org-less users are not forced into any org flow on arrival — they land on a useful discovery page and can create or join an org when they choose to.
 
 ---
 
 ### 3.6 Org-less Sidebar
 
-In `src/app/(dashboard)/_components/app-sidebar.tsx`, the sidebar nav items are already conditionally rendered based on org membership. Ensure the no-membership state shows only:
-- My Hackathons (`/dashboard/[orgSlug]/my-hackathons` is org-scoped, so for org-less users: a direct link to their registrations list on the dashboard page)
-- Account Settings (`/dashboard/account` — to be built in Part 4)
+Not applicable. Org-less users are redirected to `/` from `/dashboard` and never reach any `(dashboard)` layout that renders the sidebar. No changes needed to `app-sidebar.tsx` for this part.
 
 ---
 
@@ -794,11 +775,16 @@ In `src/app/(dashboard)/_components/app-sidebar.tsx`, the sidebar nav items are 
 | File | Change |
 |------|--------|
 | `src/app/page.tsx` | Replace placeholder with full platform homepage |
-| `src/components/platform-nav.tsx` | New component |
-| `src/app/page/_components/hackathon-grid.tsx` | New client component for filter + cards |
+| `src/components/platform-nav.tsx` | New server component |
+| `src/components/platform-user-menu.tsx` | New client component (user dropdown for logged-in nav state) |
+| `src/app/_components/hackathon-grid.tsx` | New client component for filter pills + hackathon cards |
 | `src/lib/services/hackathon-service.ts` | Add `getPublicHackathons()` |
-| `src/app/(dashboard)/dashboard/page.tsx` | Fix org-less redirect → useful state |
-| `src/app/(dashboard)/_components/app-sidebar.tsx` | Ensure org-less sidebar shows minimal nav |
+| `src/app/(dashboard)/dashboard/page.tsx` | Replace zero-org branch with `redirect('/')` |
+
+**Explicitly out of scope for Part 3:**
+- Save/star feature — deferred to backlog
+- Org-less sidebar changes — not needed (org-less users redirect to `/`)
+- New DB tables or migrations — none required
 
 ---
 

@@ -78,36 +78,6 @@ export default async function DashboardPage() {
     );
   }
 
-  // Zero orgs → prompt to create
-  const isVerified = session.user.isEmailVerified;
-
-  return (
-    <div className="flex flex-1 items-center justify-center p-6">
-      <div className="w-full max-w-sm space-y-6 text-center">
-        <div className="mx-auto flex size-16 items-center justify-center rounded-full bg-primary/10">
-          <Building2 className="size-8 text-primary" />
-        </div>
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">
-            Welcome to HackForge
-          </h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Create your first organization to get started.
-          </p>
-        </div>
-        {isVerified ? (
-          <Button asChild>
-            <Link href="/dashboard/create-org">
-              <Plus className="mr-2 size-4" />
-              Create Organization
-            </Link>
-          </Button>
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            Please verify your email before creating an organization.
-          </p>
-        )}
-      </div>
-    </div>
-  );
+  // Zero orgs → send to platform page
+  redirect('/');
 }

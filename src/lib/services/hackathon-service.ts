@@ -1,4 +1,4 @@
-import { eq, and, isNull, desc, ne } from 'drizzle-orm';
+import { eq, and, isNull, desc, ne, inArray } from 'drizzle-orm';
 
 import { db } from '@/db';
 import {
@@ -13,6 +13,8 @@ import {
 import { ERR } from '@/lib/constants/error-codes';
 import { HACKATHON_STATUS, PHASE_STATUS } from '@/lib/constants/enums';
 import { slugify } from '@/lib/utils';
+
+import { getStorageProvider } from '@/lib/storage';
 
 import { applyStatusResolution } from './hackathon-lifecycle';
 import { getRegistrationFields } from './registration-service';
@@ -768,4 +770,72 @@ async function isSlugAvailable(
   });
 
   return !existing;
+}
+
+// ---------------------------------------------------------------------------
+// Public Discovery (Part 3 — Platform Landing Page)
+// ---------------------------------------------------------------------------
+
+export type PublicHackathonFilter = 'all' | 'open' | 'active' | 'upcoming';
+
+export interface PublicHackathon {
+  id: string;
+  title: string;
+  slug: string;
+  status: string;
+  coverImageUrl: string | null;
+  orgName: string;
+  orgSlug: string;
+  registrationEndDate: Date | null;
+}
+
+export async function getPublicHackathons(
+  filter: PublicHackathonFilter = 'all',
+): Promise<PublicHackathon[]> {
+  console.log('[hackathon-service] getPublicHackathons:', { filter });
+
+  const statusValues: Hackathon['status'][] =
+    filter === 'open' ? ['published'] :
+    filter === 'active' ? ['active'] :
+    filter === 'upcoming' ? ['published'] :
+    ['published', 'active'];
+
+  const rows = await db
+    .select({
+      id: hackathons.id,
+      title: hackathons.title,
+      slug: hackathons.slug,
+      status: hackathons.status,
+      coverImageKey: hackathons.coverImageKey,
+      orgName: organizations.name,
+      orgSlug: organizations.slug,
+    })
+    .from(hackathons)
+    .innerJoin(organizations, eq(hackathons.orgId, organizations.id))
+    .where(
+      and(
+        inArray(hackathons.status, statusValues),
+        eq(hackathons.visibility, 'public'),
+        isNull(hackathons.deletedAt),
+        isNull(organizations.deletedAt),
+      ),
+    )
+    .orderBy(desc(hackathons.createdAt));
+
+  const storage = getStorageProvider();
+
+  return Promise.all(
+    rows.map(async (row) => ({
+      id: row.id,
+      title: row.title,
+      slug: row.slug,
+      status: row.status,
+      coverImageUrl: row.coverImageKey
+        ? await storage.getSignedUrl(row.coverImageKey)
+        : null,
+      orgName: row.orgName,
+      orgSlug: row.orgSlug,
+      registrationEndDate: null,
+    })),
+  );
 }
