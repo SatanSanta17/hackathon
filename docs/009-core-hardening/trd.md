@@ -3,7 +3,7 @@
 **Document ID:** TRD-009  
 **Date:** April 18, 2026  
 **Author:** Burhanuddin C.  
-**Status:** Parts 1–7 Written — Parts 1–2 Audited & Complete + Convention Audit Complete  
+**Status:** Parts 1–7 Written — Parts 1–2 + 6 Audited & Complete + Convention Audit Complete  
 **PRD Reference:** `docs/009-core-hardening/prd.md`  
 **Architecture Reference:** `docs/004-architecture.md`  
 **Conventions Reference:** `docs/003-coding-conventions.md`

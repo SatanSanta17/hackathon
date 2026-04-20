@@ -438,7 +438,7 @@ function HackathonCard({
         <div className="absolute right-2 top-2">
           <Badge
             variant={STATUS_BADGE_VARIANT[hackathon.status] ?? 'outline'}
-            className={cn('text-[10px] uppercase', STATUS_BADGE_CLASS[hackathon.status])}
+            className={cn('text-2xs uppercase', STATUS_BADGE_CLASS[hackathon.status])}
           >
             {hackathon.status}
           </Badge>

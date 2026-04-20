@@ -6,6 +6,21 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Phase 3.5 — Core Hardening, Part 6: Design Token System (April 18, 2026)
+
+#### Correctness
+- Fixed critical bug: `--hero-gradient-from/via/to` tokens were only defined in `.theme-competitive` but consumed by `my-hackathon-card.tsx` (admin dashboard component) — cover image gradient fallback was invisible in the admin theme. Added all missing tokens to `:root` with appropriate neutral values.
+- Added `--prize-gold/silver/bronze`, `--timeline-*`, and `--section-divider` tokens to `:root` — admin-theme values now complete; no token is referenced in `@theme inline` without a corresponding `:root` definition.
+
+#### Code Quality
+- Replaced `text-[10px]` arbitrary value in `hackathon-list.tsx` with `text-2xs` (maps to `--text-2xs: 0.625rem` defined in `@theme inline`)
+- `src/app/globals.css` restructured into four clearly commented layers: Layer 1 (`@theme inline` — Tailwind token aliases), Layer 2 (`:root` — admin theme), Layer 2a (`.dark` — admin dark overrides), Layer 3 (`.theme-competitive` — participant theme), Layer 4 (`@layer base` — element resets)
+
+#### Documentation
+- Added "Design Token Reference" section and "No arbitrary Tailwind values" rule to `docs/003-coding-conventions.md` — documents the four-layer CSS architecture, all token groups with their Tailwind utility prefixes, and the `text-2xs` convention
+
+---
+
 ### Convention Audit & Cleanup (April 18, 2026)
 
 #### Code Quality

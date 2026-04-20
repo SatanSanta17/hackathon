@@ -102,6 +102,35 @@ Blank line between each group.
 - **Desktop-first, mobile-responsive.** Primary experience is desktop. All pages must be fully responsive and usable on mobile.
 - **Consistent spacing and sizing.** Use Tailwind's spacing scale consistently. Don't mix arbitrary pixel values with Tailwind units.
 - **Theme tokens are defined globally.** All shared colours, font sizes, border radii, shadows, and brand tokens must be defined in `globals.css` using CSS custom properties or Tailwind's `@layer` directives. Components reference these global tokens. If a value appears in more than one component, it belongs in the global stylesheet.
+- **No arbitrary Tailwind values for defined tokens.** Never use `text-[10px]`, `bg-[#abc]`, or any other arbitrary bracket value when a design token already covers that value. Add a new token to `globals.css` first, then use its utility class.
+
+### Design Token Reference
+
+The project uses **Tailwind v4 CSS-based configuration** — there is no `tailwind.config.ts`. All tokens are defined in `src/app/globals.css` across four layers:
+
+| Layer | Selector | Purpose |
+|-------|----------|---------|
+| Layer 1 | `@theme inline` | Maps Tailwind utility names (e.g. `bg-background`) to CSS variables |
+| Layer 2 | `:root` | Admin/dashboard theme — light base, neutral greys |
+| Layer 2a | `.dark` | Dark-mode overrides for the admin theme |
+| Layer 3 | `.theme-competitive` | Participant-facing theme — dark base, neon accents |
+| Layer 4 | `@layer base` | Global element resets using token utilities |
+
+**Token categories and their Tailwind utility prefixes:**
+
+| Token group | CSS variable prefix | Tailwind prefix |
+|-------------|---------------------|-----------------|
+| Colours | `--background`, `--foreground`, `--primary`, … | `bg-*`, `text-*`, `border-*` |
+| Prize ranks | `--prize-gold`, `--prize-silver`, `--prize-bronze` | `bg-prize-gold`, `text-prize-gold-foreground`, … |
+| Hero gradient | `--hero-gradient-from/via/to` | `from-hero-gradient-from`, … |
+| Timeline states | `--timeline-active/completed/upcoming/connector` | `bg-timeline-active`, … |
+| Section divider | `--section-divider` | `bg-section-divider` |
+| Custom text sizes | `--text-2xs` (10 px) | `text-2xs` |
+
+**Rules:**
+1. Never add a token to `@theme inline` alone — pair it with a definition in `:root` (and `.theme-competitive` if it has a competitive variant).
+2. Admin-theme tokens (`:root`) apply inside all `theme-competitive` pages too unless overridden — always check both themes when adding a token that is theme-sensitive.
+3. The `text-2xs` utility (10 px) is the only custom text size. Use it for compact badge labels instead of `text-[10px]`.
 
 ---
 
