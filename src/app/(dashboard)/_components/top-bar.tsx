@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useSession, signOut } from 'next-auth/react';
-import { ChevronsUpDown, LogOut, Menu } from 'lucide-react';
+import { ChevronsUpDown, LogOut, Menu, Settings } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -123,6 +123,13 @@ export function TopBar({ currentOrg, userOrgs = [] }: TopBarProps) {
                 </p>
               </div>
             </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem asChild>
+              <Link href="/dashboard/account">
+                <Settings className="mr-2 size-4" />
+                Account Settings
+              </Link>
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
               onClick={() => signOut({ callbackUrl: '/login' })}

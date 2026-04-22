@@ -1,5 +1,5 @@
 import bcrypt from 'bcryptjs';
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 
 import { db } from '@/db';
 import { users } from '@/db/schema';
@@ -279,4 +279,15 @@ export async function resendVerificationEmail(params: {
       error: err instanceof Error ? err.message : 'Something went wrong',
     };
   }
+}
+
+// ---------------------------------------------------------------------------
+// Get User by ID
+// ---------------------------------------------------------------------------
+
+export async function getUserById(userId: string) {
+  console.log('[auth-service] getUserById:', { userId });
+  return db.query.users.findFirst({
+    where: and(eq(users.id, userId), isNull(users.deletedAt)),
+  }) ?? null;
 }

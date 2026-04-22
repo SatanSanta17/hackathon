@@ -24,5 +24,7 @@ export const STORAGE_CONSTANTS = {
       `hackathons/${hackathonId}/cover.${ext}`,
     prizeImage: (hackathonId: string, prizeId: string, ext: string) =>
       `hackathons/${hackathonId}/prizes/${prizeId}.${ext}`,
+    avatar: (userId: string, ext: string) =>
+      `users/${userId}/avatar.${ext}`,
   },
 } as const;
