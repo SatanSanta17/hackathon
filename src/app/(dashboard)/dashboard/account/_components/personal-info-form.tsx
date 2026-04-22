@@ -1,6 +1,5 @@
 'use client';
 
-import Image from 'next/image';
 import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2, Upload, X } from 'lucide-react';
@@ -11,12 +10,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
 interface PersonalInfoFormProps {
-  userId: string;
   initialName: string;
   avatarUrl: string | null;
 }
 
-export function PersonalInfoForm({ userId: _userId, initialName, avatarUrl }: PersonalInfoFormProps) {
+export function PersonalInfoForm({ initialName, avatarUrl }: PersonalInfoFormProps) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
 

@@ -1,3 +1,9 @@
 eval "$(ssh-agent -s)" && ssh-add ~/.ssh/id_ed25519_personal
 
 - add redis keys in env
+- team lead doesnt have an option to leave the team 
+- the text in landing page is not visible unless hovered upon 
+- the account settings is inside dashboard why? it should be an independant page or atlease be within settings page
+
+
+- on clicking get started we get redirected to signup page instead we should be redirected to login 
